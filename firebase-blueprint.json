@@ -1,0 +1,267 @@
+{
+  "entities": {
+    "MemoryItem": {
+      "title": "MemoryItem",
+      "description": "A permanent memory fact, preference, or project record stored by ADA v2 for a user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["personal", "preference", "project", "technical", "contact", "fact"],
+          "description": "Category of the memory item."
+        },
+        "key": {
+          "type": "string",
+          "description": "Short key or title summarizing the memory."
+        },
+        "content": {
+          "type": "string",
+          "description": "Full text content of the memory."
+        },
+        "importance": {
+          "type": "integer",
+          "description": "Importance rating from 1 to 5."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "category", "key", "content", "importance", "createdAt", "updatedAt"]
+    },
+    "CadModel": {
+      "title": "CadModel",
+      "description": "A parametric 3D CAD model and script generated in ADA v2 CAD Studio.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the CAD component."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Natural language engineering prompt."
+        },
+        "shapeType": {
+          "type": "string",
+          "enum": ["gear", "enclosure", "bracket", "cylinder", "reactor", "drone_frame"],
+          "description": "Parametric geometry archetype."
+        },
+        "scriptCode": {
+          "type": "string",
+          "description": "Generated parametric CAD Python/OpenSCAD code."
+        },
+        "dimensionsSummary": {
+          "type": "string",
+          "description": "Bounding box and tolerance summary."
+        },
+        "paramRadius": {
+          "type": "integer",
+          "description": "Primary radius/width dimension in mm (5-500)."
+        },
+        "paramHeight": {
+          "type": "integer",
+          "description": "Primary height/extrusion dimension in mm (5-500)."
+        },
+        "paramSegments": {
+          "type": "integer",
+          "description": "Teeth/segments/mounting holes count (3-128)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "prompt",
+        "shapeType",
+        "scriptCode",
+        "dimensionsSummary",
+        "paramRadius",
+        "paramHeight",
+        "paramSegments",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SmartDevice": {
+      "title": "SmartDevice",
+      "description": "A Kasa / smart home IoT node managed by ADA v2.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "name": {
+          "type": "string",
+          "description": "Device alias."
+        },
+        "room": {
+          "type": "string",
+          "description": "Room or zone name."
+        },
+        "deviceType": {
+          "type": "string",
+          "enum": ["bulb", "plug", "strip", "dimmer", "climate"],
+          "description": "Hardware type."
+        },
+        "ipAddress": {
+          "type": "string",
+          "description": "Local network IP or host."
+        },
+        "isOn": {
+          "type": "boolean",
+          "description": "Power state."
+        },
+        "brightness": {
+          "type": "integer",
+          "description": "Brightness or level percentage (0-100)."
+        },
+        "powerWatts": {
+          "type": "integer",
+          "description": "Current telemetry power draw in Watts (0-5000)."
+        },
+        "colorHex": {
+          "type": "string",
+          "description": "Hex color code for lighting."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "room",
+        "deviceType",
+        "ipAddress",
+        "isOn",
+        "brightness",
+        "powerWatts",
+        "colorHex",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PrinterNode": {
+      "title": "PrinterNode",
+      "description": "A 3D printer node monitored and controlled by ADA v2.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "name": {
+          "type": "string",
+          "description": "3D printer designation."
+        },
+        "hostUrl": {
+          "type": "string",
+          "description": "OctoPrint/Moonraker host address."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["idle", "printing", "paused", "heating", "complete"],
+          "description": "Current operational status."
+        },
+        "activeJobName": {
+          "type": "string",
+          "description": "Current or last G-code job filename."
+        },
+        "progressPercent": {
+          "type": "integer",
+          "description": "Job completion percentage (0-100)."
+        },
+        "nozzleTemp": {
+          "type": "integer",
+          "description": "Current hotend temperature in Celsius (0-350)."
+        },
+        "nozzleTarget": {
+          "type": "integer",
+          "description": "Target hotend temperature in Celsius (0-350)."
+        },
+        "bedTemp": {
+          "type": "integer",
+          "description": "Current heated bed temperature in Celsius (0-150)."
+        },
+        "bedTarget": {
+          "type": "integer",
+          "description": "Target heated bed temperature in Celsius (0-150)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "hostUrl",
+        "status",
+        "activeJobName",
+        "progressPercent",
+        "nozzleTemp",
+        "nozzleTarget",
+        "bedTemp",
+        "bedTarget",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/memories/{memoryId}": {
+      "schema": "MemoryItem",
+      "description": "User-scoped permanent memory items for ADA v2."
+    },
+    "/users/{userId}/cad_models/{modelId}": {
+      "schema": "CadModel",
+      "description": "User-scoped parametric 3D CAD models generated by ADA v2."
+    },
+    "/users/{userId}/smart_devices/{deviceId}": {
+      "schema": "SmartDevice",
+      "description": "User-scoped smart home Kasa IoT devices."
+    },
+    "/users/{userId}/printers/{printerId}": {
+      "schema": "PrinterNode",
+      "description": "User-scoped 3D printer telemetry and job nodes."
+    }
+  }
+}

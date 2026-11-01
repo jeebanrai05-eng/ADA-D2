@@ -1,0 +1,6 @@
+{
+  "name": "ADA v2",
+  "description": "Iron Man HUD AI Assistant with Gemini multimodal vision, voice, emotion AI, permanent memory, CAD generator, Kasa smart home, and 3D printer control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

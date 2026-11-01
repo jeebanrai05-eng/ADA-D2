@@ -1,0 +1,174 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation Helper: MemoryItem
+    function isValidMemoryItem(data, userId) {
+      return data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+             data.category is string && data.category in ['personal', 'preference', 'project', 'technical', 'contact', 'fact'] &&
+             data.key is string && data.key.size() >= 1 && data.key.size() <= 120 &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 2000 &&
+             data.importance is int && data.importance >= 1 && data.importance <= 5 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // Validation Helper: CadModel
+    function isValidCadModel(data, userId) {
+      return data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.prompt is string && data.prompt.size() >= 1 && data.prompt.size() <= 1000 &&
+             data.shapeType is string && data.shapeType in ['gear', 'enclosure', 'bracket', 'cylinder', 'reactor', 'drone_frame'] &&
+             data.scriptCode is string && data.scriptCode.size() >= 1 && data.scriptCode.size() <= 8000 &&
+             data.dimensionsSummary is string && data.dimensionsSummary.size() >= 1 && data.dimensionsSummary.size() <= 300 &&
+             data.paramRadius is int && data.paramRadius >= 5 && data.paramRadius <= 500 &&
+             data.paramHeight is int && data.paramHeight >= 5 && data.paramHeight <= 500 &&
+             data.paramSegments is int && data.paramSegments >= 3 && data.paramSegments <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // Validation Helper: SmartDevice
+    function isValidSmartDevice(data, userId) {
+      return data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.room is string && data.room.size() >= 1 && data.room.size() <= 80 &&
+             data.deviceType is string && data.deviceType in ['bulb', 'plug', 'strip', 'dimmer', 'climate'] &&
+             data.ipAddress is string && data.ipAddress.size() >= 1 && data.ipAddress.size() <= 60 &&
+             data.isOn is bool &&
+             data.brightness is int && data.brightness >= 0 && data.brightness <= 100 &&
+             data.powerWatts is int && data.powerWatts >= 0 && data.powerWatts <= 5000 &&
+             data.colorHex is string && data.colorHex.size() >= 4 && data.colorHex.size() <= 12 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // Validation Helper: PrinterNode
+    function isValidPrinterNode(data, userId) {
+      return data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.hostUrl is string && data.hostUrl.size() >= 1 && data.hostUrl.size() <= 200 &&
+             data.status is string && data.status in ['idle', 'printing', 'paused', 'heating', 'complete'] &&
+             data.activeJobName is string && data.activeJobName.size() >= 1 && data.activeJobName.size() <= 150 &&
+             data.progressPercent is int && data.progressPercent >= 0 && data.progressPercent <= 100 &&
+             data.nozzleTemp is int && data.nozzleTemp >= 0 && data.nozzleTemp <= 350 &&
+             data.nozzleTarget is int && data.nozzleTarget >= 0 && data.nozzleTarget <= 350 &&
+             data.bedTemp is int && data.bedTemp >= 0 && data.bedTemp <= 150 &&
+             data.bedTarget is int && data.bedTarget >= 0 && data.bedTarget <= 150 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId}/memories/{memoryId} {
+      allow get: if isOwner(userId) && isValidId(userId) && isValidId(memoryId) && existing().userId == request.auth.uid;
+      allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(memoryId) &&
+                       incoming().keys().hasAll(['userId', 'category', 'key', 'content', 'importance', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'category', 'key', 'content', 'importance', 'createdAt', 'updatedAt']) &&
+                       isValidMemoryItem(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(memoryId) &&
+                       isValidMemoryItem(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['category', 'key', 'content', 'importance', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId) && isValidId(memoryId) && existing().userId == request.auth.uid;
+    }
+
+    match /users/{userId}/cad_models/{modelId} {
+      allow get: if isOwner(userId) && isValidId(userId) && isValidId(modelId) && existing().userId == request.auth.uid;
+      allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(modelId) &&
+                       incoming().keys().hasAll(['userId', 'name', 'prompt', 'shapeType', 'scriptCode', 'dimensionsSummary', 'paramRadius', 'paramHeight', 'paramSegments', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'prompt', 'shapeType', 'scriptCode', 'dimensionsSummary', 'paramRadius', 'paramHeight', 'paramSegments', 'createdAt', 'updatedAt']) &&
+                       isValidCadModel(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(modelId) &&
+                       isValidCadModel(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'prompt', 'shapeType', 'scriptCode', 'dimensionsSummary', 'paramRadius', 'paramHeight', 'paramSegments', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId) && isValidId(modelId) && existing().userId == request.auth.uid;
+    }
+
+    match /users/{userId}/smart_devices/{deviceId} {
+      allow get: if isOwner(userId) && isValidId(userId) && isValidId(deviceId) && existing().userId == request.auth.uid;
+      allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(deviceId) &&
+                       incoming().keys().hasAll(['userId', 'name', 'room', 'deviceType', 'ipAddress', 'isOn', 'brightness', 'powerWatts', 'colorHex', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'room', 'deviceType', 'ipAddress', 'isOn', 'brightness', 'powerWatts', 'colorHex', 'createdAt', 'updatedAt']) &&
+                       isValidSmartDevice(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(deviceId) &&
+                       isValidSmartDevice(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'room', 'deviceType', 'ipAddress', 'isOn', 'brightness', 'powerWatts', 'colorHex', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId) && isValidId(deviceId) && existing().userId == request.auth.uid;
+    }
+
+    match /users/{userId}/printers/{printerId} {
+      allow get: if isOwner(userId) && isValidId(userId) && isValidId(printerId) && existing().userId == request.auth.uid;
+      allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(printerId) &&
+                       incoming().keys().hasAll(['userId', 'name', 'hostUrl', 'status', 'activeJobName', 'progressPercent', 'nozzleTemp', 'nozzleTarget', 'bedTemp', 'bedTarget', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'hostUrl', 'status', 'activeJobName', 'progressPercent', 'nozzleTemp', 'nozzleTarget', 'bedTemp', 'bedTarget', 'createdAt', 'updatedAt']) &&
+                       isValidPrinterNode(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidId(printerId) &&
+                       isValidPrinterNode(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'hostUrl', 'status', 'activeJobName', 'progressPercent', 'nozzleTemp', 'nozzleTarget', 'bedTemp', 'bedTarget', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId) && isValidId(printerId) && existing().userId == request.auth.uid;
+    }
+  }
+}

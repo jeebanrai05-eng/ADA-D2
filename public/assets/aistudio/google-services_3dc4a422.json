@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "361532511682",
+    "firebase_url": "https://jarvis-f3f5f-default-rtdb.firebaseio.com",
+    "project_id": "jarvis-f3f5f",
+    "storage_bucket": "jarvis-f3f5f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:361532511682:android:f61312bc959c9c80c1f25b",
+        "android_client_info": {
+          "package_name": "com.aistudio.adaassistant.jarvis"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "361532511682-nsd42og3ojvtch8tigfbeq86s8ml35s8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVygUHWcrZJ_BSxpvgG-vKVrf3UVyw9Xo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "361532511682-nsd42og3ojvtch8tigfbeq86s8ml35s8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
