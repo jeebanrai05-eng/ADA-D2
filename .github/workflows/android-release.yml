@@ -36,8 +36,16 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK & Accept Licenses
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name "sdkmanager" 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          fi
 
       - name: Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
@@ -54,7 +62,6 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
             echo "Using release signing credentials from GitHub Secrets..."
             echo "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "${GITHUB_WORKSPACE}/my-upload-key.jks"
-            # Also ensure debug.keystore exists so Gradle signingConfigs evaluation succeeds
             if [ -f "signing/jarvis-signing-key.b64" ]; then
               tr -d '[:space:]' < signing/jarvis-signing-key.b64 | base64 -d > "${GITHUB_WORKSPACE}/debug.keystore"
             else
