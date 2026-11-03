@@ -4,7 +4,7 @@
   "currentVersionCode": 111,
   "firebaseProjectId": "jarvis-f3f5f",
   "firebaseProjectNumber": "361532511682",
-  "keystoreBackupFile": "debug.keystore.base64",
+  "keystoreBackupFile": "signing/jarvis-signing-key.b64",
   "keystoreFormat": "PKCS12 / JKS",
   "keyAlias": "androiddebugkey",
   "storePassword": "android",
@@ -14,5 +14,5 @@
     "sha1Compact": "1a8df9bb895ca3a4a480919f45a9b2314d081b78",
     "sha256": "09:08:34:A8:C9:F8:AD:9F:B6:9B:C0:08:2F:8D:DD:B1:B3:51:CD:3F:B9:07:ED:FB:82:3C:57:A0:B9:D9:49:7D"
   },
-  "updateCompatibilityNote": "All future APK builds MUST be signed with this exact certificate (stored in debug.keystore.base64) so Android allows seamless in-place upgrades without uninstalling existing user data and Firebase Google Sign-In continues to work."
+  "updateCompatibilityNote": "All future APK builds use signing/jarvis-signing-key.b64 (or GitHub Secrets KEYSTORE_BASE64) so Android allows seamless in-place upgrades without uninstalling existing user data."
 }

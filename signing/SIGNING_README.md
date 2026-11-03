@@ -2,9 +2,7 @@
 
 ## 1. Saved Signing Key Certificate (For Future Updates & Firebase Auth)
 
-To ensure that future versions (`v1.1.2`, `v1.2.0`, etc.) install seamlessly on top of `v1.1.1` without Android showing **"App not installed as package conflicts with an existing package"**, every build must use the **same signing key**.
-
-The signing keystore is already saved in the repository root as **`debug.keystore.base64`**.
+The persistent signing keystore is saved in **`signing/jarvis-signing-key.b64`** so it is exported with the repository to GitHub.
 
 ### Certificate Fingerprints
 - **Package Name (`applicationId`)**: `com.aistudio.adaassistant.jarvis`
@@ -23,32 +21,9 @@ The signing keystore is already saved in the repository root as **`debug.keystor
 
 ---
 
-## 2. How to Restore the Keystore Locally or in CI/CD
+## 2. GitHub Actions Signing Modes (`/.github/workflows/android-release.yml`)
 
-```bash
-base64 -d debug.keystore.base64 > debug.keystore
-```
-
-Verify the restored certificate fingerprints:
-```bash
-keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android
-```
-
----
-
-## 3. GitHub Actions Automatic Release (`/.github/workflows/android-release.yml`)
-
-When you push this project to GitHub:
-1. Pushing a tag like `v1.1.1` (or triggering **Actions → JARVIS Android Release & OTA Update → Run workflow**) automatically:
-   - Restores `debug.keystore` from `debug.keystore.base64`.
-   - Verifies the `SHA-1` and `SHA-256` signing certificate.
-   - Builds the signed APK (`JARVIS-AI-v1.1.1.apk`).
-   - Updates `version.json` with your exact GitHub repository release download URL and APK SHA-256 checksum.
-   - Creates a **GitHub Release (`v1.1.1`)** with `JARVIS-AI-v1.1.1.apk` and `version.json` attached.
-
-## 4. How Self-Update Works for Future Versions (`v1.1.2+`)
-
-1. Bump `versionCode` (e.g. `112`) and `versionName` (e.g. `"1.1.2"`) in `app/build.gradle.kts` and `version.json`.
-2. Push to GitHub or tag `v1.1.2`.
-3. Inside the **JARVIS AI** app, open **Sidebar → API Configuration & Secrets** (or **Smart Home & Workshop IoT → OTA Self-Update & Signing Manager**), enter your GitHub repo (`owner/repo`), and tap **Check for Updates**.
-4. JARVIS fetches `version.json` / GitHub Releases, verifies that `versionCode > 111` and that the signing certificate SHA-256 matches, and opens the signed APK download so Android upgrades the app in-place while preserving all user data!
+1. **Custom Release Signing via GitHub Secrets (Optional)**:
+   If you configure `KEYSTORE_BASE64`, `STORE_PASSWORD`, and `KEY_PASSWORD` in **GitHub Repository Settings → Secrets and variables → Actions**, the workflow runs `gradle assembleRelease` using your custom upload key (`alias: upload`).
+2. **Automatic Signed Debug Fallback (Default — Zero Setup Required)**:
+   If release signing secrets are not set, the workflow automatically restores the keystore from `signing/jarvis-signing-key.b64` (or generates a valid `debug.keystore` via `keytool` if absent) and runs `gradle assembleDebug`, packaging `JARVIS-AI-v1.1.1.apk` and `version.json` into the GitHub Release without failing.

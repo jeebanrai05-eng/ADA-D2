@@ -195,7 +195,7 @@ fun JarvisSettingsDialog(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "SAVED SIGNING CERTIFICATE (debug.keystore.base64):",
+                                    text = "SAVED SIGNING CERTIFICATE (signing/jarvis-signing-key.b64):",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = HudCyan
                                 )
@@ -218,7 +218,7 @@ fun JarvisSettingsDialog(
                                             Version: v${updateManager.installedVersionName} (code ${updateManager.installedVersionCode})
                                             SHA-1: $runtimeSha1
                                             SHA-256: $runtimeSha256
-                                            Keystore File: debug.keystore.base64 (alias: androiddebugkey)
+                                            Keystore Backup: signing/jarvis-signing-key.b64 (alias: androiddebugkey)
                                         """.trimIndent()
                                         cb?.setPrimaryClip(ClipData.newPlainText("JARVIS Signing Certificate", clipText))
                                         Toast.makeText(context, "Signing certificate SHA-1 & SHA-256 copied!", Toast.LENGTH_SHORT).show()
