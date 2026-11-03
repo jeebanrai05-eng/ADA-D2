@@ -1,21 +1,24 @@
 <resources>
     <string name="app_name">ADA v2</string>
-    <string name="hud_subtitle">ADVANCED DIGITAL ASSISTANT // MARK II</string>
-    <string name="sign_in_title">SECURITY CLEARANCE REQUIRED</string>
-    <string name="sign_in_subtitle">Authenticate via Google Identity Protocol to unlock ADA v2 Neural Core, Permanent Memory, and Workshop Telemetry.</string>
+    <string name="jarvis_brand_title">JARVIS AI</string>
+    <string name="hud_subtitle">JARVIS // ULTIMATE PERSONAL ASSISTANT</string>
+    <string name="sign_in_title">JARVIS SECURITY CLEARANCE</string>
+    <string name="sign_in_subtitle">Authenticate via Google Identity Protocol to unlock JARVIS AI Brain, Internet Search, ElevenLabs Voice, and Android Phone Control.</string>
     <string name="sign_in_with_google">Sign in with Google</string>
     <string name="sign_out">Sign Out</string>
-    <string name="nav_hud">HUD Core</string>
+    <string name="nav_hud">JARVIS Core</string>
+    <string name="nav_search">Web Search</string>
+    <string name="nav_phone">Phone Control</string>
     <string name="nav_vision">Vision</string>
     <string name="nav_memory">Memory</string>
     <string name="nav_cad">CAD Lab</string>
-    <string name="nav_systems">Systems</string>
+    <string name="nav_systems">IoT &amp; Settings</string>
     <string name="trusted_mode_active">TRUSTED MODE: AUTO</string>
     <string name="trusted_mode_confirm">TRUSTED MODE: GUARDED</string>
     <string name="half_duplex_label">HALF-DUPLEX ECHO GUARD</string>
     <string name="voice_listen_start">Engage Voice Link</string>
     <string name="voice_listen_stop">Mute Voice Link</string>
-    <string name="chat_input_hint">Transmit command or query to ADA v2…</string>
+    <string name="chat_input_hint">Ask JARVIS in English or Nepali, or issue a voice/device command…</string>
     <string name="send_command">Transmit</string>
     <string name="vision_capture_analyze">Capture &amp; Analyze Frame</string>
     <string name="vision_pick_photo">Load Visual Media</string>
@@ -24,4 +27,5 @@
     <string name="printer_dispatch_btn">Send to 3D Printer</string>
     <string name="kasa_scan_btn">Sync Workshop IoT</string>
     <string name="system_agent_title">System &amp; Media Agent</string>
+    <string name="accessibility_service_description">JARVIS Optional Accessibility Helper: Enables user-requested navigation actions (Back, Home, Recents, Quick Notifications) when explicitly commanded by voice or button. Never collects private data or bypasses Android security.</string>
 </resources>

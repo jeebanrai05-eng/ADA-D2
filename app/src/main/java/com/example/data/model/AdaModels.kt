@@ -126,7 +126,7 @@ enum class EmotionMood(
     val adapterTone: String,
     val promptGuidance: String
 ) {
-    NEUTRAL("neutral", "NEUTRAL // BALANCED", "Tactical & Clear", "Maintain a balanced, crisp, Stark-style HUD assistant tone."),
+    NEUTRAL("neutral", "NEUTRAL // BALANCED", "Tactical & Clear", "Maintain a balanced, crisp, Stark-style JARVIS assistant tone."),
     FOCUSED("focused", "FOCUSED // DEEP WORK", "Concise & High-Precision", "Be ultra-concise, technical, and minimize filler."),
     HAPPY("happy", "ELEVATED // POSITIVE", "Warm & Energetic", "Match the user's enthusiasm with witty, upbeat synergy."),
     STRESSED("stressed", "ELEVATED CORTISOL // STRESSED", "Calm & De-escalating", "Prioritize step-by-step clarity, reassurance, and cognitive offloading."),
@@ -149,7 +149,23 @@ data class ChatMessage(
     val timestampMs: Long = System.currentTimeMillis(),
     val emotionTag: String? = null,
     val suggestedMemory: MemorySuggestion? = null,
-    val pendingAction: PendingSystemAction? = null
+    val pendingAction: PendingSystemAction? = null,
+    val sourcePrompt: String = ""
+)
+
+data class ConversationSession(
+    val id: String,
+    val title: String,
+    val createdAtMs: Long = System.currentTimeMillis(),
+    val messages: List<ChatMessage>
+)
+
+data class ActionLogEntry(
+    val id: String,
+    val timestampMs: Long = System.currentTimeMillis(),
+    val actionTitle: String,
+    val detail: String,
+    val status: String // "EXECUTED", "BLOCKED", "AWAITING_CONFIRMATION"
 )
 
 data class MemorySuggestion(
@@ -161,9 +177,10 @@ data class MemorySuggestion(
 
 data class PendingSystemAction(
     val id: String,
-    val actionType: String, // YOUTUBE_PLAY, WHATSAPP_SEND, WEB_SEARCH, KASA_SCENE, PRINTER_START
+    val actionType: String,
     val title: String,
     val description: String,
     val targetOrQuery: String,
-    val secondaryParam: String = ""
+    val secondaryParam: String = "",
+    val requiresConfirmation: Boolean = false
 )

@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -32,16 +36,22 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.BookmarkAdd
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
@@ -71,13 +81,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
@@ -99,6 +110,7 @@ import com.example.ui.theme.HudPanelElevated
 import com.example.ui.theme.HudPanelSurface
 import com.example.ui.theme.HudSkyBlue
 import com.example.viewmodel.AiTaskState
+import java.util.Calendar
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -111,22 +123,40 @@ fun HudCoreScreen(
     isSpeaking: Boolean,
     halfDuplexEnabled: Boolean,
     trustedModeAuto: Boolean,
+    conversationVoiceMode: Boolean,
     pendingMemoryPrompt: MemorySuggestion?,
     onToggleVoiceListen: () -> Unit,
     onStopSpeaking: () -> Unit,
     onToggleTrustedMode: (Boolean) -> Unit,
     onToggleHalfDuplex: (Boolean) -> Unit,
+    onToggleConversationVoiceMode: () -> Unit,
     onSelectMood: (EmotionMood) -> Unit,
     onSendCommand: (String) -> Unit,
+    onQuickWebSearch: (String) -> Unit,
+    onSpeakMessage: (String) -> Unit,
+    onRegenerateMessage: (ChatMessage) -> Unit,
+    onNewConversation: () -> Unit,
+    onClearConversation: () -> Unit,
     onConfirmMemory: (MemorySuggestion) -> Unit,
     onDismissMemory: () -> Unit,
     onTriggerAction: (PendingSystemAction) -> Unit
 ) {
+    val context = LocalContext.current
     var commandText by remember { mutableStateOf("") }
     var showEmotionCalibrator by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(chatMessages.size) {
+    val greetingText = remember {
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        when {
+            hour < 12 -> "GOOD MORNING, SIR"
+            hour < 17 -> "GOOD AFTERNOON, SIR"
+            else -> "GOOD EVENING, SIR"
+        }
+    }
+
+    val lastMsgLength = chatMessages.lastOrNull()?.text?.length ?: 0
+    LaunchedEffect(chatMessages.size, lastMsgLength, chatTaskState) {
         if (chatMessages.isNotEmpty()) {
             listState.animateScrollToItem(chatMessages.lastIndex)
         }
@@ -136,27 +166,29 @@ fun HudCoreScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Top HUD Status Strip + Arc Reactor Visualizer + Emotion AI Widget
+        // JARVIS Main HUD Core Card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("hud_visualizer_card"),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = HudPanelSurface.copy(alpha = 0.9f)),
-            border = BorderStroke(1.dp, HudCyan.copy(alpha = 0.45f))
+            colors = CardDefaults.cardColors(containerColor = HudPanelSurface.copy(alpha = 0.92f)),
+            border = BorderStroke(1.dp, HudCyan.copy(alpha = 0.5f))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Status Pill Row
+                // Status & Conversation Action Row
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Trusted Mode Toggle Pill
@@ -169,15 +201,15 @@ fun HudCoreScreen(
                             .testTag("trusted_mode_toggle")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Icon(
                                 imageVector = if (trustedModeAuto) Icons.Default.VerifiedUser else Icons.Default.Shield,
                                 contentDescription = null,
                                 tint = if (trustedModeAuto) HudEmerald else HudAmber,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                             Text(
                                 text = if (trustedModeAuto) stringResource(R.string.trusted_mode_active) else stringResource(R.string.trusted_mode_confirm),
@@ -197,15 +229,15 @@ fun HudCoreScreen(
                             .testTag("half_duplex_toggle")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.GraphicEq,
                                 contentDescription = null,
                                 tint = if (halfDuplexEnabled) HudCyan else HudMutedText,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                             Text(
                                 text = if (halfDuplexEnabled) "ECHO GUARD: ON" else "ECHO GUARD: OFF",
@@ -214,9 +246,57 @@ fun HudCoreScreen(
                             )
                         }
                     }
+
+                    // New Conversation Pill
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = HudPanelElevated,
+                        border = BorderStroke(1.dp, HudSkyBlue.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .clickable { onNewConversation() }
+                            .testTag("new_conversation_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AddComment,
+                                contentDescription = "New Conversation",
+                                tint = HudSkyBlue,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text("NEW CHAT", style = MaterialTheme.typography.labelSmall, color = HudSkyBlue)
+                        }
+                    }
+
+                    // Clear Conversation Pill
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = HudPanelElevated,
+                        border = BorderStroke(1.dp, HudMutedText.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .clickable { onClearConversation() }
+                            .testTag("clear_conversation_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteSweep,
+                                contentDescription = "Clear Conversation",
+                                tint = HudMutedText,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text("CLEAR", style = MaterialTheme.typography.labelSmall, color = HudMutedText)
+                        }
+                    }
                 }
 
-                // Arc Reactor Visualizer + Emotion Telemetry Side-by-Side
+                // Animated Circular JARVIS AI Core + Center Greeting & Telemetry
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -225,40 +305,40 @@ fun HudCoreScreen(
                     ArcReactorVisualizer(
                         isListening = isListening,
                         isSpeaking = isSpeaking,
-                        isThinking = chatTaskState is AiTaskState.Loading,
+                        isThinking = chatTaskState is AiTaskState.Loading || chatTaskState is AiTaskState.Streaming,
                         mood = emotionState.mood,
                         modifier = Modifier
-                            .size(112.dp)
+                            .size(108.dp)
                             .clickable { onToggleVoiceListen() }
                             .testTag("arc_reactor_visualizer")
                     )
 
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = when {
-                                    isSpeaking -> "VOICE SYNTHESIS // ACTIVE"
-                                    isListening -> "VOICE LINK // LISTENING"
-                                    chatTaskState is AiTaskState.Loading -> "NEURAL CORE // PROCESSING"
-                                    else -> "NEURAL CORE // STANDBY"
-                                },
-                                style = MaterialTheme.typography.labelLarge,
-                                color = when {
-                                    isSpeaking -> HudEmerald
-                                    isListening -> HudAmber
-                                    else -> HudCyan
-                                }
-                            )
-                        }
+                        Text(
+                            text = greetingText,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = HudIceWhite,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = when {
+                                isSpeaking -> "JARVIS VOICE ENGINE // SPEAKING"
+                                isListening -> "JARVIS VOICE LINK // LISTENING"
+                                chatTaskState is AiTaskState.Loading || chatTaskState is AiTaskState.Streaming -> "JARVIS BRAIN // ANALYZING"
+                                else -> "JARVIS SYSTEM ONLINE"
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = when {
+                                isSpeaking -> HudEmerald
+                                isListening -> HudAmber
+                                else -> HudCyan
+                            }
+                        )
 
-                        // Emotion AI Widget Bar
+                        // Emotion AI / Neural Context Bar
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = HudObsidian.copy(alpha = 0.7f),
@@ -268,46 +348,40 @@ fun HudCoreScreen(
                                 .clickable { showEmotionCalibrator = !showEmotionCalibrator }
                                 .testTag("emotion_widget_card")
                         ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Psychology,
-                                            contentDescription = null,
-                                            tint = HudCyan,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(
-                                            text = "EMOTION AI: ${emotionState.mood.id.uppercase()}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = HudIceWhite
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Psychology,
+                                        contentDescription = null,
+                                        tint = HudCyan,
+                                        modifier = Modifier.size(15.dp)
+                                    )
                                     Text(
-                                        text = "${emotionState.confidence}%",
+                                        text = "CONTEXT: ${emotionState.mood.id.uppercase()} (${emotionState.mood.adapterTone})",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = HudCyan
+                                        color = HudIceWhite,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = "Tone: ${emotionState.mood.adapterTone} (${emotionState.source})",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = HudMutedText,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = "${emotionState.confidence}%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HudCyan
                                 )
                             }
                         }
 
-                        // Voice Mic & Mute TTS Controls
+                        // Voice Mic & Stop Speaking Controls
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -315,24 +389,24 @@ fun HudCoreScreen(
                             Button(
                                 onClick = onToggleVoiceListen,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isListening) HudAmber else HudCyan.copy(alpha = 0.2f),
+                                    containerColor = if (isListening) HudAmber else HudCyan.copy(alpha = 0.22f),
                                     contentColor = if (isListening) HudObsidian else HudCyan
                                 ),
                                 shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(38.dp)
+                                    .height(36.dp)
                                     .testTag("voice_listen_button")
                             ) {
                                 Icon(
                                     imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
                                     contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isListening) "Listening…" else "Voice Link",
+                                    text = if (isListening) "Listening…" else "Hey JARVIS",
                                     style = MaterialTheme.typography.labelSmall
                                 )
                             }
@@ -342,19 +416,19 @@ fun HudCoreScreen(
                                     onClick = onStopSpeaking,
                                     border = BorderStroke(1.dp, HudEmerald),
                                     shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier
-                                        .height(38.dp)
+                                        .height(36.dp)
                                         .testTag("stop_tts_button")
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                                        contentDescription = "Stop speaking",
+                                        contentDescription = "Interrupt speaking",
                                         tint = HudEmerald,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(15.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Mute", style = MaterialTheme.typography.labelSmall, color = HudEmerald)
+                                    Text("Stop", style = MaterialTheme.typography.labelSmall, color = HudEmerald)
                                 }
                             }
                         }
@@ -390,7 +464,7 @@ fun HudCoreScreen(
             }
         }
 
-        // Memory Prompt Banner (if Gemini detected a new memory to commit)
+        // Memory Prompt Banner
         AnimatedVisibility(visible = pendingMemoryPrompt != null) {
             pendingMemoryPrompt?.let { suggestion ->
                 Card(
@@ -404,7 +478,7 @@ fun HudCoreScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -459,7 +533,7 @@ fun HudCoreScreen(
             }
         }
 
-        // Quick Tactical Command Chips
+        // Quick Voice & Phone Control Command Chips
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -467,11 +541,15 @@ fun HudCoreScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val quickPrompts = listOf(
-                "Status Report" to "Give me a full workshop & system telemetry status report",
-                "Play YouTube" to "Play Iron Man AC/DC soundtrack on YouTube",
-                "Focus Protocol" to "Activate Kasa Focus Protocol lighting scene",
-                "Save Project Fact" to "Remember that my primary project is the Mark II Titanium Exoskeleton",
-                "WhatsApp Dispatch" to "Send a WhatsApp message to Lab Team saying Prototype v2 passed thermal tests"
+                "Hey Jarvis" to "Hey Jarvis, give me a full system status report",
+                "Flashlight ON" to "Turn on flashlight",
+                "Battery %" to "Tell me the battery percentage",
+                "Open YouTube" to "Open YouTube",
+                "Open WhatsApp" to "Open WhatsApp",
+                "Set Alarm" to "Set an alarm for 07:00",
+                "Read Notifications" to "Read my notifications",
+                "Open Settings" to "Open settings",
+                "नेपालीमा कुरा" to "नमस्ते जार्विस, के छ खबर?"
             )
             quickPrompts.forEach { (label, prompt) ->
                 Surface(
@@ -490,7 +568,7 @@ fun HudCoreScreen(
             }
         }
 
-        // Chat Log Stream
+        // AI Conversation Stream
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -503,6 +581,13 @@ fun HudCoreScreen(
             items(chatMessages, key = { it.id }) { msg ->
                 ChatBubbleItem(
                     message = msg,
+                    onSpeakMessage = { onSpeakMessage(msg.text) },
+                    onCopyMessage = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("JARVIS Response", msg.text))
+                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                    },
+                    onRegenerate = { onRegenerateMessage(msg) },
                     onExecuteAction = onTriggerAction
                 )
             }
@@ -537,12 +622,29 @@ fun HudCoreScreen(
             }
         }
 
-        // Command Input Console
+        // Bottom Console: Microphone Button + Text Input + Search Button + Voice Mode Button + Send Button
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // Microphone Activation Button
+            IconButton(
+                onClick = onToggleVoiceListen,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isListening) HudAmber else HudPanelElevated)
+                    .border(1.dp, if (isListening) HudAmber else HudCyanDim.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                    .testTag("bottom_mic_button")
+            ) {
+                Icon(
+                    imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                    contentDescription = "Microphone activation",
+                    tint = if (isListening) HudObsidian else HudCyan
+                )
+            }
+
             OutlinedTextField(
                 value = commandText,
                 onValueChange = { commandText = it },
@@ -550,10 +652,21 @@ fun HudCoreScreen(
                     Text(
                         text = stringResource(R.string.chat_input_hint),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = HudMutedText.copy(alpha = 0.6f)
+                        color = HudMutedText.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(
+                    onSend = {
+                        if (commandText.isNotBlank()) {
+                            onSendCommand(commandText)
+                            commandText = ""
+                        }
+                    }
+                ),
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = HudCyan,
@@ -568,6 +681,51 @@ fun HudCoreScreen(
                     .testTag("chat_command_input")
             )
 
+            // Search Button
+            IconButton(
+                onClick = {
+                    val q = commandText.trim()
+                    if (q.isNotBlank()) {
+                        commandText = ""
+                    }
+                    onQuickWebSearch(q)
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(HudPanelElevated)
+                    .border(1.dp, HudSkyBlue.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .testTag("bottom_search_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Internet Search",
+                    tint = HudSkyBlue
+                )
+            }
+
+            // Voice Conversation Mode Toggle Button
+            IconButton(
+                onClick = onToggleConversationVoiceMode,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (conversationVoiceMode) HudEmerald.copy(alpha = 0.25f) else HudPanelElevated)
+                    .border(
+                        1.dp,
+                        if (conversationVoiceMode) HudEmerald else HudMutedText.copy(alpha = 0.4f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .testTag("bottom_voice_mode_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.GraphicEq,
+                    contentDescription = "Conversation Voice Mode",
+                    tint = if (conversationVoiceMode) HudEmerald else HudMutedText
+                )
+            }
+
+            // Send Command Button
             IconButton(
                 onClick = {
                     if (commandText.isNotBlank()) {
@@ -576,7 +734,7 @@ fun HudCoreScreen(
                     }
                 },
                 modifier = Modifier
-                    .size(50.dp)
+                    .size(48.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(HudCyan)
                     .testTag("send_command_button")
@@ -594,6 +752,9 @@ fun HudCoreScreen(
 @Composable
 private fun ChatBubbleItem(
     message: ChatMessage,
+    onSpeakMessage: () -> Unit,
+    onCopyMessage: () -> Unit,
+    onRegenerate: () -> Unit,
     onExecuteAction: (PendingSystemAction) -> Unit
 ) {
     val isUser = message.sender == "USER"
@@ -615,28 +776,76 @@ private fun ChatBubbleItem(
                 1.dp,
                 if (isUser) HudSkyBlue.copy(alpha = 0.5f) else HudCyan.copy(alpha = 0.45f)
             ),
-            modifier = Modifier.widthIn(max = 340.dp)
+            modifier = Modifier.widthIn(max = 350.dp)
         ) {
             Column(
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = if (isUser) "OPERATOR" else "ADA v2",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isUser) HudSkyBlue else HudCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                    message.emotionTag?.let { tag ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
-                            text = "[$tag]",
+                            text = if (isUser) "SIR // OPERATOR" else "JARVIS AI",
                             style = MaterialTheme.typography.labelSmall,
-                            color = HudEmerald
+                            color = if (isUser) HudSkyBlue else HudCyan,
+                            fontWeight = FontWeight.Bold
                         )
+                        message.emotionTag?.let { tag ->
+                            Text(
+                                text = "[$tag]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = HudEmerald
+                            )
+                        }
+                    }
+
+                    // Voice Playback, Copy, & Regenerate Action Row
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        IconButton(
+                            onClick = onSpeakMessage,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = "Speak message",
+                                tint = HudCyan,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onCopyMessage,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy response",
+                                tint = HudMutedText,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        if (!isUser && message.id != "welcome_1") {
+                            IconButton(
+                                onClick = onRegenerate,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Regenerate response",
+                                    tint = HudSkyBlue,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -662,7 +871,7 @@ private fun ChatBubbleItem(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "SYSTEM INTENT // ${action.title}",
+                                    text = "ANDROID ACTION // ${action.title}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = HudAmber
                                 )
@@ -670,13 +879,13 @@ private fun ChatBubbleItem(
                                     text = action.description,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = HudIceWhite,
-                                    maxLines = 1,
+                                    maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Execute system intent",
+                                contentDescription = "Execute Android action",
                                 tint = HudAmber
                             )
                         }
@@ -737,7 +946,6 @@ fun ArcReactorVisualizer(
             val center = Offset(size.width / 2f, size.height / 2f)
             val maxR = size.minDimension / 2f
 
-            // Outer segmented telemetry arcs
             rotate(degrees = outerRotation, pivot = center) {
                 for (i in 0 until 6) {
                     drawArc(
@@ -752,7 +960,6 @@ fun ArcReactorVisualizer(
                 }
             }
 
-            // Counter-rotating inner ring
             rotate(degrees = -outerRotation * 1.3f, pivot = center) {
                 for (i in 0 until 12) {
                     val angleRad = Math.toRadians((i * 30.0))
@@ -774,7 +981,6 @@ fun ArcReactorVisualizer(
                 }
             }
 
-            // Glowing pulsing core
             drawCircle(
                 color = coreColor.copy(alpha = 0.35f),
                 radius = maxR * 0.42f * pulseScale,

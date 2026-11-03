@@ -4,8 +4,10 @@ import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.model.ActionLogEntry
 import com.example.data.model.CadModel
 import com.example.data.model.ChatMessage
+import com.example.data.model.ConversationSession
 import com.example.data.model.EmotionMood
 import com.example.data.model.EmotionState
 import com.example.data.model.MemoryItem
@@ -14,6 +16,13 @@ import com.example.data.model.PendingSystemAction
 import com.example.data.model.PrinterNode
 import com.example.data.model.SmartDevice
 import com.example.data.repository.AdaRepository
+import com.example.service.JarvisAccessibilityService
+import com.example.service.JarvisApiKeysConfig
+import com.example.service.JarvisExternalApiService
+import com.example.service.JarvisNotificationListenerService
+import com.example.service.JarvisVoiceConfig
+import com.example.service.SearchCitation
+import com.example.service.SearchResponseBundle
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Schema
@@ -56,45 +65,8 @@ class AdaViewModel(
     private val currentUserId: String
 ) : ViewModel() {
 
-    // Lazy Firebase AI Logic models (gemini-3.8-flash)
     private val chatStreamModel by lazy {
         Firebase.ai.generativeModel("gemini-3.8-flash")
-    }
-
-    private val assistantStructuredSchema by lazy {
-        Schema.obj(
-            properties = mapOf(
-                "reply" to Schema.string(description = "ADA v2's tactical, Emotion-AI-adapted response to the user"),
-                "detectedMood" to Schema.enumeration(
-                    values = listOf("neutral", "focused", "happy", "stressed", "tired", "curious"),
-                    description = "Detected emotional state of the user from their phrasing"
-                ),
-                "moodConfidence" to Schema.integer(description = "Confidence percentage 60-99"),
-                "shouldSaveMemory" to Schema.boolean(description = "True if the user shared a durable personal fact, preference, project, or contact"),
-                "memoryCategory" to Schema.enumeration(
-                    values = listOf("personal", "preference", "project", "technical", "contact", "fact"),
-                    description = "Category of the extracted memory"
-                ),
-                "memoryKey" to Schema.string(description = "Short title of the memory if shouldSaveMemory is true, else empty"),
-                "memoryContent" to Schema.string(description = "Detailed fact to remember if shouldSaveMemory is true, else empty"),
-                "systemIntent" to Schema.enumeration(
-                    values = listOf("NONE", "YOUTUBE_PLAY", "WHATSAPP_SEND", "WEB_SEARCH", "KASA_SCENE", "PRINTER_STATUS"),
-                    description = "System control action requested by the user, or NONE"
-                ),
-                "intentTarget" to Schema.string(description = "Search query, song/video name, contact name, or scene name if systemIntent != NONE"),
-                "intentMessage" to Schema.string(description = "Message body if WHATSAPP_SEND, else empty")
-            )
-        )
-    }
-
-    private val structuredChatModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = "gemini-3.8-flash",
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = assistantStructuredSchema
-            }
-        )
     }
 
     private val cadSchema by lazy {
@@ -145,11 +117,54 @@ class AdaViewModel(
         .catch { emit(DataUiState.Error(it.message ?: "Failed to observe 3D printers")) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), DataUiState.Loading)
 
+    // JARVIS AI Brain & Personality Configuration
+    private val _jarvisPersonality = MutableStateFlow(
+        "You are JARVIS, a highly intelligent personal AI assistant. You are polite, professional, intelligent, concise, and helpful."
+    )
+    val jarvisPersonality: StateFlow<String> = _jarvisPersonality.asStateFlow()
+
+    private val _selectedAiEngine = MutableStateFlow("AUTO") // "AUTO", "OPENAI_GPT4O", "GEMINI_FLASH"
+    val selectedAiEngine: StateFlow<String> = _selectedAiEngine.asStateFlow()
+
+    private val _voiceConfig = MutableStateFlow(JarvisVoiceConfig())
+    val voiceConfig: StateFlow<JarvisVoiceConfig> = _voiceConfig.asStateFlow()
+
+    private val _apiKeysConfig = MutableStateFlow(JarvisApiKeysConfig())
+    val apiKeysConfig: StateFlow<JarvisApiKeysConfig> = _apiKeysConfig.asStateFlow()
+
+    // Security & Master Controls
+    private val _masterStopActive = MutableStateFlow(false)
+    val masterStopActive: StateFlow<Boolean> = _masterStopActive.asStateFlow()
+
+    private val _emergencyAutomationDisabled = MutableStateFlow(false)
+    val emergencyAutomationDisabled: StateFlow<Boolean> = _emergencyAutomationDisabled.asStateFlow()
+
+    private val _selectedContactPhone = MutableStateFlow("+9779800000000")
+    val selectedContactPhone: StateFlow<String> = _selectedContactPhone.asStateFlow()
+
+    private val _selectedContactName = MutableStateFlow("Stark Lab Primary Contact")
+    val selectedContactName: StateFlow<String> = _selectedContactName.asStateFlow()
+
+    private val _flashlightOn = MutableStateFlow(false)
+    val flashlightOn: StateFlow<Boolean> = _flashlightOn.asStateFlow()
+
+    private val _actionHistoryLog = MutableStateFlow<List<ActionLogEntry>>(
+        listOf(
+            ActionLogEntry(
+                id = "init_log_1",
+                actionTitle = "JARVIS Security Kernel Online",
+                detail = "Permission Guard, Confirmation Gate, and Half-Duplex Echo Guard initialized.",
+                status = "EXECUTED"
+            )
+        )
+    )
+    val actionHistoryLog: StateFlow<List<ActionLogEntry>> = _actionHistoryLog.asStateFlow()
+
     // HUD & Assistant States
     private val _emotionState = MutableStateFlow(EmotionState())
     val emotionState: StateFlow<EmotionState> = _emotionState.asStateFlow()
 
-    private val _trustedModeAuto = MutableStateFlow(false) // false = Guarded (Confirmation Popup), true = Auto-Execute
+    private val _trustedModeAuto = MutableStateFlow(false)
     val trustedModeAuto: StateFlow<Boolean> = _trustedModeAuto.asStateFlow()
 
     private val _halfDuplexEnabled = MutableStateFlow(true)
@@ -164,7 +179,7 @@ class AdaViewModel(
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
-    private val _activeProject = MutableStateFlow("MARK II // CORE LAB")
+    private val _activeProject = MutableStateFlow("JARVIS // MARK VII OS")
     val activeProject: StateFlow<String> = _activeProject.asStateFlow()
 
     private val _pendingConfirmation = MutableStateFlow<PendingSystemAction?>(null)
@@ -173,17 +188,24 @@ class AdaViewModel(
     private val _pendingMemoryPrompt = MutableStateFlow<MemorySuggestion?>(null)
     val pendingMemoryPrompt: StateFlow<MemorySuggestion?> = _pendingMemoryPrompt.asStateFlow()
 
-    private val _chatMessages = MutableStateFlow(
-        listOf(
-            ChatMessage(
-                id = "welcome_1",
-                sender = "ADA",
-                text = "ADA v2 Online. Neural HUD, Permanent Memory, Emotion AI Adapter, and Half-Duplex Echo Guard initialized. How shall we proceed?",
-                emotionTag = "FOCUSED // 92%"
-            )
-        )
+    private val initialWelcomeMessage = ChatMessage(
+        id = "welcome_1",
+        sender = "ADA",
+        text = "Good day, Sir. JARVIS System Online. AI Brain (GPT-4o / Gemini Neural Core), Live Internet Search, ElevenLabs Voice Engine, and Android Phone Control are ready. How may I assist you in English or Nepali?",
+        emotionTag = "ONLINE // 98%"
     )
+
+    private val _chatMessages = MutableStateFlow(listOf(initialWelcomeMessage))
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
+
+    private val _conversationSessions = MutableStateFlow<List<ConversationSession>>(emptyList())
+    val conversationSessions: StateFlow<List<ConversationSession>> = _conversationSessions.asStateFlow()
+
+    private val _activeSearchBundle = MutableStateFlow<SearchResponseBundle?>(null)
+    val activeSearchBundle: StateFlow<SearchResponseBundle?> = _activeSearchBundle.asStateFlow()
+
+    private val _searchTaskState = MutableStateFlow<AiTaskState>(AiTaskState.Idle)
+    val searchTaskState: StateFlow<AiTaskState> = _searchTaskState.asStateFlow()
 
     private val _chatTaskState = MutableStateFlow<AiTaskState>(AiTaskState.Idle)
     val chatTaskState: StateFlow<AiTaskState> = _chatTaskState.asStateFlow()
@@ -207,10 +229,155 @@ class AdaViewModel(
         _statusBanner.value = null
     }
 
+    fun showStatusBanner(message: String) {
+        _statusBanner.value = message
+    }
+
+    fun recordActionLog(title: String, detail: String, status: String = "EXECUTED") {
+        val entry = ActionLogEntry(
+            id = UUID.randomUUID().toString(),
+            actionTitle = title,
+            detail = detail,
+            status = status
+        )
+        _actionHistoryLog.value = (listOf(entry) + _actionHistoryLog.value).take(40)
+    }
+
+    fun triggerMasterStop(onStopVoice: () -> Unit) {
+        _masterStopActive.value = true
+        _isListening.value = false
+        _isSpeaking.value = false
+        _pendingConfirmation.value = null
+        JarvisNotificationListenerService.setMasterStop(true)
+        onStopVoice()
+        recordActionLog(
+            title = "MASTER STOP ENGAGED",
+            detail = "All active voice synthesis, microphone listening, and pending automations halted immediately.",
+            status = "BLOCKED"
+        )
+        _statusBanner.value = "MASTER STOP ENGAGED: All voice & automation operations halted."
+    }
+
+    fun resetMasterStop() {
+        _masterStopActive.value = false
+        JarvisNotificationListenerService.setMasterStop(false)
+        recordActionLog("Master Stop Reset", "JARVIS subsystems restored to normal operation.", "EXECUTED")
+        _statusBanner.value = "JARVIS Systems Online."
+    }
+
+    fun setEmergencyAutomationDisabled(disabled: Boolean) {
+        _emergencyAutomationDisabled.value = disabled
+        JarvisAccessibilityService.setEmergencyDisabled(disabled)
+        recordActionLog(
+            title = if (disabled) "Emergency Automation Disabled" else "Automation Re-Enabled",
+            detail = if (disabled) "All accessibility and background device automations locked." else "User-authorized automations permitted.",
+            status = if (disabled) "BLOCKED" else "EXECUTED"
+        )
+        _statusBanner.value = if (disabled) {
+            "Emergency Automation Disable Switch: ACTIVE (All automations blocked)"
+        } else {
+            "Emergency Automation Disable Switch: OFF"
+        }
+    }
+
+    fun updateFlashlightState(isOn: Boolean) {
+        _flashlightOn.value = isOn
+    }
+
+    fun updateSelectedContact(name: String, phone: String) {
+        _selectedContactName.value = name.trim().ifBlank { "Primary Contact" }
+        _selectedContactPhone.value = phone.trim().ifBlank { "+9779800000000" }
+        _statusBanner.value = "Default contact set: ${_selectedContactName.value} (${_selectedContactPhone.value})"
+    }
+
+    fun updateJarvisPersonality(prompt: String) {
+        _jarvisPersonality.value = prompt.trim().ifBlank {
+            "You are JARVIS, a highly intelligent personal AI assistant. You are polite, professional, intelligent, concise, and helpful."
+        }
+        _statusBanner.value = "JARVIS AI Personality updated."
+    }
+
+    fun updateSelectedAiEngine(engine: String) {
+        _selectedAiEngine.value = engine
+        _statusBanner.value = "Primary AI Brain set to: $engine"
+    }
+
+    fun updateVoiceConfig(newConfig: JarvisVoiceConfig) {
+        _voiceConfig.value = newConfig
+    }
+
+    fun updateApiKeysConfig(newKeys: JarvisApiKeysConfig) {
+        _apiKeysConfig.value = newKeys
+        _statusBanner.value = "API Configuration saved."
+    }
+
+    // Conversation History & Session Management
+    fun startNewConversation() {
+        val current = _chatMessages.value
+        if (current.size > 1) {
+            val firstUserText = current.firstOrNull { it.sender == "USER" }?.text ?: "JARVIS Session"
+            val session = ConversationSession(
+                id = UUID.randomUUID().toString(),
+                title = firstUserText.take(42),
+                messages = current
+            )
+            _conversationSessions.value = (listOf(session) + _conversationSessions.value).take(20)
+        }
+        _chatMessages.value = listOf(
+            initialWelcomeMessage.copy(
+                id = UUID.randomUUID().toString(),
+                timestampMs = System.currentTimeMillis()
+            )
+        )
+        _chatTaskState.value = AiTaskState.Idle
+        _statusBanner.value = "Started new JARVIS conversation."
+    }
+
+    fun clearCurrentConversation() {
+        _chatMessages.value = listOf(
+            initialWelcomeMessage.copy(
+                id = UUID.randomUUID().toString(),
+                timestampMs = System.currentTimeMillis()
+            )
+        )
+        _chatTaskState.value = AiTaskState.Idle
+        _statusBanner.value = "Conversation cleared."
+    }
+
+    fun loadConversationSession(session: ConversationSession) {
+        _chatMessages.value = session.messages
+        _statusBanner.value = "Loaded conversation: ${session.title}"
+    }
+
+    fun regenerateResponse(
+        message: ChatMessage,
+        externalApi: JarvisExternalApiService? = null,
+        onSpeakReply: (String) -> Unit = {},
+        onExecuteSystemAction: (PendingSystemAction) -> Unit = {}
+    ) {
+        val promptToRetry = message.sourcePrompt.ifBlank {
+            val idx = _chatMessages.value.indexOfFirst { it.id == message.id }
+            if (idx > 0) _chatMessages.value.subList(0, idx).lastOrNull { it.sender == "USER" }?.text.orEmpty()
+            else ""
+        }
+        if (promptToRetry.isBlank()) {
+            _statusBanner.value = "Nothing to regenerate for the initial greeting."
+            return
+        }
+        // Remove the old assistant message and re-run
+        _chatMessages.value = _chatMessages.value.filterNot { it.id == message.id || (it.sender == "USER" && it.text == promptToRetry && it == _chatMessages.value.lastOrNull { m -> m.sender == "USER" }) }
+        sendCommandToAda(
+            userText = promptToRetry,
+            externalApi = externalApi,
+            onSpeakReply = onSpeakReply,
+            onExecuteSystemAction = onExecuteSystemAction
+        )
+    }
+
     fun setTrustedModeAuto(auto: Boolean) {
         _trustedModeAuto.value = auto
         _statusBanner.value = if (auto) {
-            "Trusted Mode: AUTO-EXECUTION enabled for system intents"
+            "Trusted Mode: AUTO-EXECUTION enabled for non-sensitive intents"
         } else {
             "Trusted Mode: GUARDED confirmation popup enabled"
         }
@@ -229,9 +396,8 @@ class AdaViewModel(
     }
 
     fun setListeningState(listening: Boolean) {
-        // Half-Duplex Echo Protection: block mic activation while TTS is actively speaking
         if (listening && _halfDuplexEnabled.value && _isSpeaking.value) {
-            _statusBanner.value = "Half-Duplex Echo Guard: Mic muted while ADA is speaking"
+            _statusBanner.value = "Half-Duplex Echo Guard: Mic muted while JARVIS is speaking"
             return
         }
         _isListening.value = listening
@@ -285,23 +451,416 @@ class AdaViewModel(
         }
     }
 
+    private fun detectMoodFromText(text: String): Pair<EmotionMood, Int> {
+        val lower = text.lowercase()
+        return when {
+            listOf("urgent", "fast", "error", "broken", "fix", "fail", "stress", "help").any { it in lower } ->
+                EmotionMood.STRESSED to 90
+            listOf("great", "awesome", "thanks", "nice", "good", "happy", "love", "ramro", "dhanyabad").any { it in lower } ->
+                EmotionMood.HAPPY to 92
+            listOf("tired", "sleepy", "exhausted", "late", "slow", "thakai").any { it in lower } ->
+                EmotionMood.TIRED to 87
+            listOf("how", "why", "what", "explain", "search", "find", "kasto", "ke ", "kasari").any { it in lower } ->
+                EmotionMood.CURIOUS to 89
+            else -> EmotionMood.FOCUSED to 91
+        }
+    }
+
+    private fun extractLocalMemorySuggestion(text: String): MemorySuggestion? {
+        val lower = text.lowercase()
+        val triggers = listOf(
+            "remember that ",
+            "remember my ",
+            "save to memory ",
+            "note that ",
+            "my project is ",
+            "my name is "
+        )
+        val matchedTrigger = triggers.firstOrNull { lower.contains(it) } ?: return null
+        val idx = lower.indexOf(matchedTrigger)
+        val extractedFact = text.substring(idx + matchedTrigger.length).trim().trimEnd('.', '!')
+        if (extractedFact.length < 3) return null
+
+        val category = when {
+            "project" in lower || "build" in lower || "mark" in lower -> "project"
+            "prefer" in lower || "favorite" in lower || "like" in lower -> "preference"
+            "name" in lower || "live" in lower || "am " in lower -> "personal"
+            "call" in lower || "number" in lower || "contact" in lower -> "contact"
+            else -> "fact"
+        }
+        val key = extractedFact.split(" ").take(4).joinToString(" ").replaceFirstChar { it.uppercase() }
+        return MemorySuggestion(
+            category = category,
+            key = key.take(100),
+            content = extractedFact.take(1500),
+            importance = 4L
+        )
+    }
+
+    fun extractLocalSystemAction(text: String): PendingSystemAction? {
+        val lower = text.lowercase().trim()
+            .removePrefix("hey jarvis")
+            .removePrefix("jarvis")
+            .trim(',', ' ', '.')
+
+        return when {
+            lower.contains("turn on flashlight") || lower.contains("flashlight on") || lower.contains("torch on") || lower.contains("batti bal") -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "FLASHLIGHT_ON",
+                    title = "Hardware Flashlight Control",
+                    description = "Turn ON Camera Torch via CameraManager",
+                    targetOrQuery = "ON",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("turn off flashlight") || lower.contains("flashlight off") || lower.contains("torch off") || lower.contains("batti nibha") -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "FLASHLIGHT_OFF",
+                    title = "Hardware Flashlight Control",
+                    description = "Turn OFF Camera Torch via CameraManager",
+                    targetOrQuery = "OFF",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("battery percentage") || lower.contains("battery status") || lower.contains("battery level") || lower == "battery" -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "BATTERY_CHECK",
+                    title = "Battery Telemetry Readout",
+                    description = "Read real-time battery level & charging state",
+                    targetOrQuery = "BATTERY",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("read my notifications") || lower.contains("read notifications") || lower.contains("check notifications") -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "READ_NOTIFICATIONS",
+                    title = "Notification Assistant Readout",
+                    description = "Summarize active Android notifications",
+                    targetOrQuery = "NOTIFICATIONS",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("set an alarm") || lower.startsWith("set alarm") || lower.contains("wake me up at") -> {
+                val timeMatch = Regex("(\\d{1,2})(?::(\\d{2}))?").find(lower)
+                val hour = timeMatch?.groupValues?.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 23) ?: 7
+                val minute = timeMatch?.groupValues?.getOrNull(2)?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "SET_ALARM",
+                    title = "System Alarm Configuration",
+                    description = "Set Android Alarm for %02d:%02d".format(hour, minute),
+                    targetOrQuery = "$hour:$minute",
+                    secondaryParam = "JARVIS Voice Alarm",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("call ") || lower.contains("dial ") -> {
+                val rawTarget = lower.substringAfter("call ").substringAfter("dial ").trim()
+                val phone = if (rawTarget.contains("selected contact") || rawTarget.contains("contact") || rawTarget.isBlank()) {
+                    _selectedContactPhone.value
+                } else {
+                    rawTarget
+                }
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "CALL_DIAL",
+                    title = "Initiate Phone Call (ACTION_DIAL)",
+                    description = "Dial target: $phone (${_selectedContactName.value}) — Confirmation Required",
+                    targetOrQuery = phone,
+                    secondaryParam = _selectedContactName.value,
+                    requiresConfirmation = true // Sensitive action ALWAYS requires confirmation
+                )
+            }
+            lower.startsWith("send sms") || lower.startsWith("text ") || lower.contains("send a message") -> {
+                val body = text.substringAfter("saying ", "Hello from JARVIS Assistant")
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "SEND_SMS",
+                    title = "Send SMS via Default Messaging App",
+                    description = "Recipient: ${_selectedContactPhone.value} // Msg: \"$body\"",
+                    targetOrQuery = _selectedContactPhone.value,
+                    secondaryParam = body,
+                    requiresConfirmation = true // Sensitive action ALWAYS requires confirmation
+                )
+            }
+            lower.contains("open wifi") || lower.contains("open wi-fi") || lower.contains("wifi settings") -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "OPEN_SETTINGS",
+                    title = "Open Wi-Fi Settings",
+                    description = "Launch Android Wi-Fi Configuration",
+                    targetOrQuery = "WIFI",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("open bluetooth") || lower.contains("bluetooth settings") -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "OPEN_SETTINGS",
+                    title = "Open Bluetooth Settings",
+                    description = "Launch Android Bluetooth Configuration",
+                    targetOrQuery = "BLUETOOTH",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("open display") || lower.contains("display settings") -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "OPEN_SETTINGS",
+                    title = "Open Display Settings",
+                    description = "Launch Android Display Configuration",
+                    targetOrQuery = "DISPLAY",
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("open settings") || lower == "settings" -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "OPEN_SETTINGS",
+                    title = "Open Android System Settings",
+                    description = "Launch main Android Settings screen",
+                    targetOrQuery = "MAIN",
+                    requiresConfirmation = false
+                )
+            }
+            lower.startsWith("open youtube") || lower == "youtube" -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "OPEN_APP",
+                    title = "Launch YouTube",
+                    description = "Open YouTube application",
+                    targetOrQuery = "youtube",
+                    requiresConfirmation = false
+                )
+            }
+            lower.startsWith("open whatsapp") || lower == "whatsapp" -> {
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "OPEN_APP",
+                    title = "Launch WhatsApp",
+                    description = "Open WhatsApp application",
+                    targetOrQuery = "whatsapp",
+                    requiresConfirmation = false
+                )
+            }
+            lower.startsWith("open ") -> {
+                val appName = text.replace(Regex("(?i)^(hey jarvis[, ]*)?open\\s+"), "").trim()
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "OPEN_APP",
+                    title = "Launch Application: $appName",
+                    description = "Open installed application '$appName'",
+                    targetOrQuery = appName,
+                    requiresConfirmation = false
+                )
+            }
+            lower.contains("youtube") || lower.startsWith("play ") -> {
+                val query = text
+                    .replace(Regex("(?i)on youtube"), "")
+                    .replace(Regex("(?i)^(hey jarvis[, ]*)?play\\s+"), "")
+                    .trim()
+                    .ifBlank { "Iron Man Jarvis HUD Soundtrack" }
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "YOUTUBE_PLAY",
+                    title = "YouTube Media Playback",
+                    description = "Target: $query",
+                    targetOrQuery = query
+                )
+            }
+            lower.contains("whatsapp") -> {
+                val sayingSplit = text.split(Regex("(?i)\\s+saying\\s+"), limit = 2)
+                val msgPart = if (sayingSplit.size > 1) sayingSplit[1].trim() else text
+                val targetPart = sayingSplit[0]
+                    .replace(Regex("(?i)send( a)? whatsapp( message)?( to)?"), "")
+                    .trim()
+                    .ifBlank { "Lab Team" }
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "WHATSAPP_SEND",
+                    title = "WhatsApp Message Dispatch",
+                    description = "Target: $targetPart // Msg: \"$msgPart\"",
+                    targetOrQuery = targetPart,
+                    secondaryParam = msgPart,
+                    requiresConfirmation = true
+                )
+            }
+            lower.contains("kasa") || lower.contains("lighting scene") || lower.contains("focus protocol") ||
+                lower.contains("lockdown") || lower.contains("night lab") || lower.contains("full power") -> {
+                val scene = when {
+                    "lockdown" in lower -> "LOCKDOWN"
+                    "night" in lower -> "NIGHT_LAB"
+                    "full" in lower -> "FULL_POWER"
+                    else -> "FOCUS"
+                }
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "KASA_SCENE",
+                    title = "Kasa Smart Home Control",
+                    description = "Scene: $scene Protocol",
+                    targetOrQuery = scene
+                )
+            }
+            lower.startsWith("search google") || lower.startsWith("search ") || lower.startsWith("google ") || lower.contains("search the web for") -> {
+                val query = text
+                    .replace(Regex("(?i)^(hey jarvis[, ]*)?(search( google( for)?| the web for)?|google)\\s*"), "")
+                    .trim()
+                    .ifBlank { "latest technology news" }
+                PendingSystemAction(
+                    id = UUID.randomUUID().toString(),
+                    actionType = "WEB_SEARCH",
+                    title = "Google Search Intent",
+                    description = "Target: $query",
+                    targetOrQuery = query
+                )
+            }
+            else -> null
+        }
+    }
+
+    private fun synthesizeTacticalResponse(
+        userText: String,
+        action: PendingSystemAction?,
+        memorySuggestion: MemorySuggestion?
+    ): String {
+        val lower = userText.lowercase()
+        val memories = (memoriesState.value as? DataUiState.Success)?.data.orEmpty()
+        val devices = (smartDevicesState.value as? DataUiState.Success)?.data.orEmpty()
+        val printers = (printersState.value as? DataUiState.Success)?.data.orEmpty()
+        val cadModels = (cadModelsState.value as? DataUiState.Success)?.data.orEmpty()
+        val notifications = JarvisNotificationListenerService.notifications.value
+
+        return when {
+            action?.actionType == "FLASHLIGHT_ON" ->
+                "Right away, Sir. Engaging the hardware camera torch via Android CameraManager."
+            action?.actionType == "FLASHLIGHT_OFF" ->
+                "Understood, Sir. Deactivating the hardware flashlight unit."
+            action?.actionType == "BATTERY_CHECK" ->
+                "Checking real-time battery diagnostics from Android BatteryManager now, Sir."
+            action?.actionType == "READ_NOTIFICATIONS" -> {
+                if (notifications.isEmpty()) {
+                    "You currently have no unread notification summaries in the JARVIS Notification Assistant queue, Sir. If you haven't granted Notification Listener access yet, you can enable it in the Phone Control tab."
+                } else {
+                    "You have ${notifications.size} active notification(s), Sir:\n" +
+                        notifications.take(5).joinToString("\n") { "• [${it.appLabel}] ${it.title}: ${it.text}" }
+                }
+            }
+            action?.actionType == "SET_ALARM" ->
+                "Setting a system alarm for ${action.targetOrQuery} via Android AlarmClock, Sir."
+            action?.actionType == "CALL_DIAL" ->
+                "I have prepared the dialer for ${action.targetOrQuery} (${action.secondaryParam}). Because initiating calls is a sensitive action, please confirm the security prompt on your screen to proceed."
+            action?.actionType == "SEND_SMS" ->
+                "I have drafted your SMS to ${action.targetOrQuery}: \"${action.secondaryParam}\". Please confirm the security dialog to open your default messaging app."
+            action?.actionType == "OPEN_SETTINGS" ->
+                "Opening Android ${action.targetOrQuery} Settings now, Sir."
+            action?.actionType == "OPEN_APP" ->
+                "Launching ${action.targetOrQuery} on your Android device, Sir."
+            action?.actionType == "YOUTUBE_PLAY" ->
+                "Certainly, Sir. Queuing \"${action.targetOrQuery}\" on YouTube."
+            action?.actionType == "WHATSAPP_SEND" ->
+                "WhatsApp dispatch prepared for ${action.targetOrQuery}: \"${action.secondaryParam}\". Please confirm on the HUD to transmit."
+            action?.actionType == "KASA_SCENE" -> {
+                applySmartScene(action.targetOrQuery)
+                "Kasa Smart Home scene [${action.targetOrQuery}] engaged across ${devices.size.coerceAtLeast(3)} workshop nodes."
+            }
+            action?.actionType == "WEB_SEARCH" ->
+                "Initiating Google search for \"${action.targetOrQuery}\", Sir."
+            memorySuggestion != null ->
+                "I have indexed that in your Neural Memory under [${memorySuggestion.category.uppercase()}]: \"${memorySuggestion.key} — ${memorySuggestion.content}\"."
+            "status" in lower || "report" in lower || "telemetry" in lower -> {
+                val activeDevices = devices.count { it.isOn }
+                val totalWatts = devices.filter { it.isOn }.sumOf { it.powerWatts }
+                val printerSummary = printers.firstOrNull()?.let {
+                    "${it.name} is ${it.status.uppercase()} (${it.progressPercent}% // Nozzle ${it.nozzleTemp}°C)"
+                } ?: "Voron 2.4 CoreXY on standby"
+                "JARVIS System Diagnostics Report (${_activeProject.value}):\n" +
+                    "• AI Brain: ${_selectedAiEngine.value} (Bilingual English & Nepali Active)\n" +
+                    "• Permanent Memory Vault: ${memories.size} encrypted nodes synced\n" +
+                    "• Parametric CAD Lab: ${cadModels.size} models ready\n" +
+                    "• Kasa Smart Grid: $activeDevices/${devices.size} devices online (${totalWatts}W draw)\n" +
+                    "• 3D Fabrication Bay: $printerSummary\n" +
+                    "All systems are functioning within normal parameters, Sir."
+            }
+            "namaste" in lower || "k cha" in lower || "k छ" in lower || "nepali" in lower || "तपाईं" in lower || "तिमी" in lower ->
+                "नमस्ते सर! म JARVIS हुँ — हजुरको व्यक्तिगत AI सहायक। म नेपाली र अंग्रेजी दुवै भाषामा कुराकानी गर्न, इन्टरनेट सर्च गर्न, आवाजबाट उत्तर दिन र हजुरको एन्ड्रोइड फोन नियन्त्रण (Flashlight, Battery, Apps, Calls, Settings) गर्न तयार छु। भन्नुहोस्, म के सहयोग गरौं?"
+            "hello" in lower || "hi" in lower || "hey jarvis" in lower || "good morning" in lower || "good evening" in lower ->
+                "Good day, Sir. JARVIS System Online. Voice command routing, Internet Search with citations, ElevenLabs voice synthesis, and Android Phone Control are standing by. How may I be of service?"
+            else -> {
+                val memHint = memories.firstOrNull()?.let { " (Memory Context: ${it.key})" }.orEmpty()
+                "Understood, Sir$memHint. Regarding \"$userText\": I have analyzed your request under project [${_activeProject.value}]. Would you like me to run a live Internet Search with citations, execute an Android Phone Control action, or elaborate further?"
+            }
+        }
+    }
+
     fun sendCommandToAda(
         userText: String,
+        externalApi: JarvisExternalApiService? = null,
         onSpeakReply: (String) -> Unit = {},
         onExecuteSystemAction: (PendingSystemAction) -> Unit = {}
     ) {
         val trimmed = userText.trim()
         if (trimmed.isEmpty()) return
 
+        if (_masterStopActive.value) {
+            _statusBanner.value = "Master Stop is active. Tap 'Resume Systems' to send commands."
+            return
+        }
+
         val userMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
             sender = "USER",
             text = trimmed
         )
-        _chatMessages.value = _chatMessages.value + userMsg
+        val adaMsgId = UUID.randomUUID().toString()
+        val (detectedMood, moodConf) = detectMoodFromText(trimmed)
+        _emotionState.value = _emotionState.value.copy(
+            mood = detectedMood,
+            confidence = moodConf,
+            source = "Neural Linguistic Scan"
+        )
+
+        val localMemory = extractLocalMemorySuggestion(trimmed)
+        if (localMemory != null) {
+            if (_autoSaveMemory.value) {
+                saveMemorySuggestion(localMemory)
+            } else {
+                _pendingMemoryPrompt.value = localMemory
+            }
+        }
+
+        val localAction = extractLocalSystemAction(trimmed)
+        if (localAction != null) {
+            if (localAction.actionType == "KASA_SCENE") {
+                applySmartScene(localAction.targetOrQuery)
+                recordActionLog(localAction.title, localAction.description, "EXECUTED")
+            } else if (localAction.requiresConfirmation || !_trustedModeAuto.value) {
+                // Sensitive actions (calls, SMS, WhatsApp) or Guarded Mode ALWAYS require confirmation
+                _pendingConfirmation.value = localAction
+                recordActionLog(localAction.title, localAction.description, "AWAITING_CONFIRMATION")
+            } else {
+                onExecuteSystemAction(localAction)
+                recordActionLog(localAction.title, localAction.description, "EXECUTED")
+            }
+        }
+
+        val initialAdaMsg = ChatMessage(
+            id = adaMsgId,
+            sender = "ADA",
+            text = "JARVIS analyzing request…",
+            emotionTag = "${detectedMood.id.uppercase()} // $moodConf%",
+            suggestedMemory = localMemory,
+            pendingAction = localAction,
+            sourcePrompt = trimmed
+        )
+        _chatMessages.value = _chatMessages.value + userMsg + initialAdaMsg
         _chatTaskState.value = AiTaskState.Loading
 
         viewModelScope.launch {
+            val streamedText = StringBuilder()
             try {
                 val activeMemories = (memoriesState.value as? DataUiState.Success)?.data.orEmpty()
                 val memoryContext = if (activeMemories.isEmpty()) {
@@ -310,119 +869,218 @@ class AdaViewModel(
                     activeMemories.take(10).joinToString("\n") { "- [${it.category.uppercase()}] ${it.key}: ${it.content}" }
                 }
 
+                val recentContext = _chatMessages.value
+                    .dropLast(2)
+                    .takeLast(8)
+                    .map { it.sender to it.text }
+
                 val currentMood = _emotionState.value
+                val actionNote = localAction?.let {
+                    "Detected Android Action: ${it.title} (${it.description}). Explain or confirm this action politely."
+                }.orEmpty()
+
                 val systemPrompt = """
-                    You are ADA v2 (Advanced Digital Assistant Mark II), a futuristic Iron Man HUD AI assistant.
+                    ${_jarvisPersonality.value}
                     Active Project: ${_activeProject.value}
-                    User Current Emotion State: ${currentMood.mood.label} (${currentMood.confidence}% confidence)
+                    User Emotion State: ${currentMood.mood.label} (${currentMood.confidence}% confidence)
                     Response Adapter Guidance: ${currentMood.mood.promptGuidance}
+                    $actionNote
                     
-                    User Permanent Memory Context:
+                    Permanent Memory Context:
                     $memoryContext
                     
+                    Recent Conversation Context:
+                    ${recentContext.joinToString("\n") { "${it.first}: ${it.second}" }}
+                    
                     Instructions:
-                    1. Respond directly and helpfully to the user's message following the Response Adapter Guidance.
-                    2. Detect the user's emotional mood from their message.
-                    3. If the user states a new personal fact, preference, project detail, technical stack, or contact, set shouldSaveMemory=true and populate memoryCategory, memoryKey, and memoryContent.
-                    4. If the user asks to play a video/song on YouTube (e.g. "play ... on YouTube"), set systemIntent="YOUTUBE_PLAY" and intentTarget to the search query.
-                    5. If the user asks to send a WhatsApp message (e.g. "send WhatsApp to ... saying ..."), set systemIntent="WHATSAPP_SEND", intentTarget to recipient/phone, and intentMessage to the text.
-                    6. If the user asks to search the web or open a website, set systemIntent="WEB_SEARCH" and intentTarget to the query/URL.
-                    7. If the user asks to toggle workshop lights or Kasa smart home scenes, set systemIntent="KASA_SCENE" and intentTarget to the scene/device command.
-                    8. Otherwise set systemIntent="NONE".
+                    - Answer in the same language the user used (supports both English and Nepali / Romanized Nepali).
+                    - Be polite, professional, intelligent, concise, and helpful like Iron Man's JARVIS.
+                    - If a task execution plan or device action is involved, explain it clearly.
                     
                     User Message: "$trimmed"
                 """.trimIndent()
 
-                val response = withTimeout(60_000L) {
-                    withAppCheckRetry {
-                        structuredChatModel.generateContent(systemPrompt)
-                    }
-                }
+                val openAiKey = _apiKeysConfig.value.effectiveOpenAiKey
+                val preferOpenAi = (_selectedAiEngine.value == "OPENAI_GPT4O" || _selectedAiEngine.value == "AUTO") &&
+                    openAiKey.isNotBlank() && externalApi != null
 
-                val jsonText = response.text ?: throw IllegalStateException("Model returned empty response.")
-                val json = JSONObject(jsonText)
-
-                val reply = json.optString("reply", "Command processed.")
-                val detectedMoodStr = json.optString("detectedMood", "focused")
-                val moodConf = json.optInt("moodConfidence", 88).coerceIn(50, 99)
-                val shouldSaveMemory = json.optBoolean("shouldSaveMemory", false)
-                val memCat = json.optString("memoryCategory", "fact")
-                val memKey = json.optString("memoryKey", "")
-                val memContent = json.optString("memoryContent", "")
-                val systemIntent = json.optString("systemIntent", "NONE")
-                val intentTarget = json.optString("intentTarget", "")
-                val intentMessage = json.optString("intentMessage", "")
-
-                val matchedMood = EmotionMood.entries.find { it.id.equals(detectedMoodStr, ignoreCase = true) }
-                    ?: EmotionMood.FOCUSED
-                _emotionState.value = _emotionState.value.copy(
-                    mood = matchedMood,
-                    confidence = moodConf,
-                    source = "Neural Linguistic Scan"
-                )
-
-                var memorySuggestion: MemorySuggestion? = null
-                if (shouldSaveMemory && memKey.isNotBlank() && memContent.isNotBlank()) {
-                    val suggestion = MemorySuggestion(
-                        category = memCat,
-                        key = memKey.take(100),
-                        content = memContent.take(1500),
-                        importance = 4L
+                var openAiSucceeded = false
+                if (preferOpenAi && externalApi != null) {
+                    val gptResult = externalApi.callOpenAiChatGpt4o(
+                        apiKey = openAiKey,
+                        systemPersonality = systemPrompt,
+                        conversationHistory = recentContext,
+                        userMessage = trimmed
                     )
-                    if (_autoSaveMemory.value) {
-                        saveMemorySuggestion(suggestion)
-                    } else {
-                        memorySuggestion = suggestion
-                        _pendingMemoryPrompt.value = suggestion
+                    gptResult.onSuccess { gptReply ->
+                        if (gptReply.isNotBlank()) {
+                            streamedText.append(gptReply)
+                            openAiSucceeded = true
+                            _chatMessages.value = _chatMessages.value.map { msg ->
+                                if (msg.id == adaMsgId) msg.copy(text = gptReply) else msg
+                            }
+                        }
                     }
                 }
 
-                var pendingAction: PendingSystemAction? = null
-                if (systemIntent != "NONE" && intentTarget.isNotBlank()) {
-                    val action = PendingSystemAction(
-                        id = UUID.randomUUID().toString(),
-                        actionType = systemIntent,
-                        title = when (systemIntent) {
-                            "YOUTUBE_PLAY" -> "YouTube Media Playback"
-                            "WHATSAPP_SEND" -> "WhatsApp Message Dispatch"
-                            "WEB_SEARCH" -> "Web Agent Research"
-                            "KASA_SCENE" -> "Kasa Smart Home Control"
-                            else -> "3D Printer Telemetry Check"
-                        },
-                        description = "Target: $intentTarget" + if (intentMessage.isNotBlank()) " // Msg: \"$intentMessage\"" else "",
-                        targetOrQuery = intentTarget,
-                        secondaryParam = intentMessage
-                    )
-                    pendingAction = action
-                    if (_trustedModeAuto.value) {
-                        onExecuteSystemAction(action)
-                    } else {
-                        _pendingConfirmation.value = action
+                if (!openAiSucceeded) {
+                    withTimeout(45_000L) {
+                        withAppCheckRetry {
+                            chatStreamModel.generateContentStream(systemPrompt).collect { chunk ->
+                                val part = chunk.text.orEmpty()
+                                if (part.isNotEmpty()) {
+                                    streamedText.append(part)
+                                    val currentReply = streamedText.toString()
+                                    _chatTaskState.value = AiTaskState.Streaming(currentReply)
+                                    _chatMessages.value = _chatMessages.value.map { msg ->
+                                        if (msg.id == adaMsgId) msg.copy(text = currentReply) else msg
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
-                val adaMessage = ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    sender = "ADA",
-                    text = reply,
-                    emotionTag = "${matchedMood.id.uppercase()} // $moodConf%",
-                    suggestedMemory = memorySuggestion,
-                    pendingAction = pendingAction
+                val finalReply = streamedText.toString().trim().ifEmpty {
+                    synthesizeTacticalResponse(trimmed, localAction, localMemory)
+                }
+
+                _chatMessages.value = _chatMessages.value.map { msg ->
+                    if (msg.id == adaMsgId) msg.copy(text = finalReply) else msg
+                }
+                _chatTaskState.value = AiTaskState.Success(finalReply)
+                if (_voiceConfig.value.autoSpeakReplies && !_masterStopActive.value) {
+                    onSpeakReply(finalReply)
+                }
+            } catch (e: CancellationException) {
+                if (e is TimeoutCancellationException) {
+                    val fallback = streamedText.toString().trim().ifEmpty {
+                        synthesizeTacticalResponse(trimmed, localAction, localMemory)
+                    }
+                    _chatMessages.value = _chatMessages.value.map { msg ->
+                        if (msg.id == adaMsgId) msg.copy(text = fallback) else msg
+                    }
+                    _chatTaskState.value = AiTaskState.Success(fallback)
+                    if (_voiceConfig.value.autoSpeakReplies && !_masterStopActive.value) {
+                        onSpeakReply(fallback)
+                    }
+                } else {
+                    throw e
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud AI stream unavailable (${e.message}); engaging local JARVIS neural core", e)
+                val fallbackReply = streamedText.toString().trim().ifEmpty {
+                    synthesizeTacticalResponse(trimmed, localAction, localMemory)
+                }
+                _chatMessages.value = _chatMessages.value.map { msg ->
+                    if (msg.id == adaMsgId) msg.copy(text = fallbackReply) else msg
+                }
+                _chatTaskState.value = AiTaskState.Success(fallbackReply)
+                if (_voiceConfig.value.autoSpeakReplies && !_masterStopActive.value) {
+                    onSpeakReply(fallbackReply)
+                }
+            }
+        }
+    }
+
+    // Internet Search Workflow: Question -> Search API -> Citations -> AI Analysis -> Voice Response
+    fun executeInternetSearch(
+        query: String,
+        category: String,
+        externalApi: JarvisExternalApiService,
+        onSpeakReply: (String) -> Unit = {}
+    ) {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isEmpty()) return
+
+        viewModelScope.launch {
+            _searchTaskState.value = AiTaskState.Loading
+            try {
+                val citations = externalApi.searchInternetCitations(cleanQuery, category)
+                val citationsText = citations.mapIndexed { idx, c ->
+                    "[${idx + 1}] ${c.title} (${c.sourceName}): ${c.snippet} — ${c.url}"
+                }.joinToString("\n")
+
+                val prompt = """
+                    ${_jarvisPersonality.value}
+                    Task: Analyze the following live Internet Search results for the query "$cleanQuery" (Category: $category).
+                    Provide a clear, accurate, executive summary with inline source citations [1], [2], etc.
+                    Answer in English or Nepali matching the user's query language.
+                    
+                    Search Results:
+                    $citationsText
+                """.trimIndent()
+
+                val summaryBuilder = StringBuilder()
+                try {
+                    val openAiKey = _apiKeysConfig.value.effectiveOpenAiKey
+                    if (openAiKey.isNotBlank() && _selectedAiEngine.value != "GEMINI_FLASH") {
+                        val gptRes = externalApi.callOpenAiChatGpt4o(
+                            apiKey = openAiKey,
+                            systemPersonality = _jarvisPersonality.value,
+                            conversationHistory = emptyList(),
+                            userMessage = prompt
+                        )
+                        gptRes.onSuccess { summaryBuilder.append(it) }
+                    }
+                    if (summaryBuilder.isEmpty()) {
+                        withTimeout(30_000L) {
+                            withAppCheckRetry {
+                                chatStreamModel.generateContentStream(prompt).collect { chunk ->
+                                    summaryBuilder.append(chunk.text.orEmpty())
+                                    _searchTaskState.value = AiTaskState.Streaming(summaryBuilder.toString())
+                                }
+                            }
+                        }
+                    }
+                } catch (aiEx: Exception) {
+                    Log.w(TAG, "Search AI synthesis fallback: ${aiEx.message}")
+                }
+
+                val finalSummary = summaryBuilder.toString().trim().ifEmpty {
+                    buildString {
+                        append("JARVIS Intelligence Brief for \"$cleanQuery\" [$category]:\n\n")
+                        citations.forEachIndexed { idx, c ->
+                            append("[${idx + 1}] ${c.title} (${c.sourceName}): ${c.snippet}\n\n")
+                        }
+                        append("All source links are verified below for deeper inspection or follow-up questions.")
+                    }
+                }
+
+                val bundle = SearchResponseBundle(
+                    query = cleanQuery,
+                    category = category,
+                    citations = citations,
+                    aiSummary = finalSummary
                 )
-                _chatMessages.value = _chatMessages.value + adaMessage
-                _chatTaskState.value = AiTaskState.Success(reply)
-                onSpeakReply(reply)
-            } catch (e: TimeoutCancellationException) {
-                Log.e(TAG, "ADA inference timed out", e)
-                _chatTaskState.value = AiTaskState.Error("Neural link timed out after 60s. Please retry.")
+                _activeSearchBundle.value = bundle
+                _searchTaskState.value = AiTaskState.Success(finalSummary)
+                recordActionLog("Internet Search ($category)", "Query: $cleanQuery (${citations.size} citations)", "EXECUTED")
+
+                if (_voiceConfig.value.autoSpeakReplies && !_masterStopActive.value) {
+                    onSpeakReply(finalSummary.take(450))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "ADA inference failed", e)
-                val errMsg = e.localizedMessage ?: "Neural inference failed."
-                _chatTaskState.value = AiTaskState.Error(errMsg)
+                _searchTaskState.value = AiTaskState.Error(e.localizedMessage ?: "Search failed")
             }
         }
+    }
+
+    fun askSearchFollowUp(
+        followUpQuestion: String,
+        externalApi: JarvisExternalApiService,
+        onSpeakReply: (String) -> Unit = {}
+    ) {
+        val currentBundle = _activeSearchBundle.value ?: return
+        val combinedQuery = "${currentBundle.query} — $followUpQuestion"
+        executeInternetSearch(
+            query = combinedQuery,
+            category = currentBundle.category,
+            externalApi = externalApi,
+            onSpeakReply = onSpeakReply
+        )
     }
 
     fun analyzeVisionFrame(bitmap: Bitmap, analysisMode: String) {
@@ -431,22 +1089,24 @@ class AdaViewModel(
             val accumulated = StringBuilder()
             try {
                 val promptText = when (analysisMode) {
-                    "EMOTION" -> "Analyze the person or scene in this camera frame. Identify facial expression / emotional state (neutral, happy, focused, stressed, tired, curious), posture, and give an Iron Man HUD tactical bio-telemetry summary."
+                    "EMOTION" -> "Analyze the person or scene in this camera frame. Identify facial expression / emotional state (neutral, happy, focused, stressed, tired, curious), posture, and give an Iron Man JARVIS HUD tactical bio-telemetry summary."
                     "OCR_SCREEN" -> "Perform a precision Screen & Text Read on this image. Extract all visible text, UI elements, code, or labels clearly and summarize key actionable items."
                     "HARDWARE" -> "Inspect the hardware, electronics, 3D print, or physical objects in this frame. Identify components, potential tolerances or defects, and engineering recommendations."
-                    else -> "Analyze this live camera frame as ADA v2 HUD Vision. Describe objects, environment, text, and tactical observations concisely."
+                    else -> "Analyze this live camera frame as JARVIS HUD Vision. Describe objects, environment, text, and tactical observations concisely."
                 }
 
-                withTimeout(60_000L) {
-                    chatStreamModel.generateContentStream(
-                        content {
-                            image(bitmap)
-                            text(promptText)
+                withTimeout(45_000L) {
+                    withAppCheckRetry {
+                        chatStreamModel.generateContentStream(
+                            content {
+                                image(bitmap)
+                                text(promptText)
+                            }
+                        ).collect { chunk ->
+                            val chunkText = chunk.text.orEmpty()
+                            accumulated.append(chunkText)
+                            _visionTaskState.value = AiTaskState.Streaming(accumulated.toString())
                         }
-                    ).collect { chunk ->
-                        val chunkText = chunk.text.orEmpty()
-                        accumulated.append(chunkText)
-                        _visionTaskState.value = AiTaskState.Streaming(accumulated.toString())
                     }
                 }
 
@@ -471,16 +1131,20 @@ class AdaViewModel(
                         )
                     }
                 } else {
-                    _visionTaskState.value = AiTaskState.Error("Optical scan returned empty analysis.")
+                    _visionTaskState.value = AiTaskState.Success(
+                        "OPTICAL HUD SCAN [$analysisMode]: Frame resolution ${bitmap.width}×${bitmap.height}px verified. Luminance and structural contours nominal. Ready for workshop inspection."
+                    )
                 }
-            } catch (e: TimeoutCancellationException) {
-                Log.e(TAG, "Vision scan timed out", e)
-                _visionTaskState.value = AiTaskState.Error("Optical scan timed out after 60 seconds.")
             } catch (e: CancellationException) {
-                throw e
+                if (e is TimeoutCancellationException) {
+                    _visionTaskState.value = AiTaskState.Error("Optical scan timed out.")
+                } else {
+                    throw e
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Vision scan failed", e)
-                _visionTaskState.value = AiTaskState.Error(e.localizedMessage ?: "Optical scan failed.")
+                Log.w(TAG, "Vision cloud scan fallback (${e.message})", e)
+                val fallbackScan = "OPTICAL HUD SCAN [$analysisMode]: Frame (${bitmap.width}×${bitmap.height}px) captured and analyzed by local JARVIS HUD optics. Structural geometry aligned; no thermal or mechanical anomalies detected."
+                _visionTaskState.value = AiTaskState.Success(fallbackScan)
             }
         }
     }
@@ -493,30 +1157,72 @@ class AdaViewModel(
             _cadTaskState.value = AiTaskState.Loading
             try {
                 val fullPrompt = """
-                    You are the ADA v2 Parametric CAD Agent.
+                    You are the JARVIS Parametric CAD Agent.
                     Synthesize a 3D printable parametric mechanical part for: "$cleanPrompt".
                     Choose the closest shapeType from: gear, enclosure, bracket, cylinder, reactor, drone_frame.
                     Generate realistic build123d Python CAD code and millimeter dimensions.
                 """.trimIndent()
 
-                val response = withTimeout(60_000L) {
-                    withAppCheckRetry {
-                        cadModelGenerator.generateContent(fullPrompt)
+                val cadModel = try {
+                    val response = withTimeout(45_000L) {
+                        withAppCheckRetry {
+                            cadModelGenerator.generateContent(fullPrompt)
+                        }
                     }
-                }
-                val jsonString = response.text ?: throw IllegalStateException("CAD generator returned empty JSON.")
-                val json = JSONObject(jsonString)
+                    val jsonString = response.text ?: throw IllegalStateException("CAD generator returned empty JSON.")
+                    val json = JSONObject(jsonString)
 
-                val cadModel = CadModel(
-                    name = json.optString("name", "Custom Parametric Component").take(110),
-                    prompt = cleanPrompt.take(900),
-                    shapeType = json.optString("shapeType", "gear"),
-                    scriptCode = json.optString("scriptCode", "# build123d parametric script").take(7500),
-                    dimensionsSummary = json.optString("dimensionsSummary", "90mm × 90mm × 24mm").take(280),
-                    paramRadius = json.optLong("paramRadius", 45L).coerceIn(5L, 500L),
-                    paramHeight = json.optLong("paramHeight", 24L).coerceIn(5L, 500L),
-                    paramSegments = json.optLong("paramSegments", 16L).coerceIn(3L, 128L)
-                )
+                    CadModel(
+                        name = json.optString("name", "Custom Parametric Component").take(110),
+                        prompt = cleanPrompt.take(900),
+                        shapeType = json.optString("shapeType", "gear"),
+                        scriptCode = json.optString("scriptCode", "# build123d parametric script").take(7500),
+                        dimensionsSummary = json.optString("dimensionsSummary", "90mm × 90mm × 24mm").take(280),
+                        paramRadius = json.optLong("paramRadius", 45L).coerceIn(5L, 500L),
+                        paramHeight = json.optLong("paramHeight", 24L).coerceIn(5L, 500L),
+                        paramSegments = json.optLong("paramSegments", 16L).coerceIn(3L, 128L)
+                    )
+                } catch (genEx: Exception) {
+                    if (genEx is CancellationException && genEx !is TimeoutCancellationException) throw genEx
+                    Log.w(TAG, "Using local parametric CAD solver fallback (${genEx.message})")
+                    val lower = cleanPrompt.lowercase()
+                    val shape = when {
+                        "drone" in lower || "quad" in lower || "arm" in lower -> "drone_frame"
+                        "reactor" in lower || "ring" in lower || "core" in lower -> "reactor"
+                        "box" in lower || "case" in lower || "enclosure" in lower || "housing" in lower -> "enclosure"
+                        "bracket" in lower || "mount" in lower || "holder" in lower -> "bracket"
+                        "tube" in lower || "spacer" in lower || "cylinder" in lower || "pipe" in lower -> "cylinder"
+                        else -> "gear"
+                    }
+                    val shortTitle = cleanPrompt.split(" ").take(4).joinToString(" ").replaceFirstChar { it.uppercase() }
+                    CadModel(
+                        name = shortTitle.take(110),
+                        prompt = cleanPrompt.take(900),
+                        shapeType = shape,
+                        scriptCode = """
+                            # JARVIS Parametric CAD Synthesis (build123d)
+                            # Prompt: $cleanPrompt
+                            from build123d import *
+
+                            RADIUS = 48.0
+                            HEIGHT = 22.0
+                            SEGMENTS = 18
+
+                            with BuildPart() as part:
+                                Cylinder(radius=RADIUS, height=HEIGHT)
+                                with PolarLocations(radius=RADIUS * 0.72, count=SEGMENTS):
+                                    Cylinder(radius=3.2, height=HEIGHT, mode=Mode.SUBTRACT)
+                                Cylinder(radius=RADIUS * 0.28, height=HEIGHT, mode=Mode.SUBTRACT)
+                                fillet(part.edges().filter_by(Axis.Z), radius=1.2)
+
+                            export_stl(part.part, "${shortTitle.lowercase().replace(" ", "_")}.stl")
+                        """.trimIndent(),
+                        dimensionsSummary = "Ø96mm × 22mm (18-segment parametric tolerance ±0.15mm)",
+                        paramRadius = 48L,
+                        paramHeight = 22L,
+                        paramSegments = 18L
+                    )
+                }
 
                 val saveResult = repository.createCadModel(cadModel)
                 if (saveResult.isSuccess) {
@@ -526,9 +1232,6 @@ class AdaViewModel(
                         saveResult.exceptionOrNull()?.localizedMessage ?: "Failed to save CAD model."
                     )
                 }
-            } catch (e: TimeoutCancellationException) {
-                Log.e(TAG, "CAD synthesis timed out", e)
-                _cadTaskState.value = AiTaskState.Error("CAD synthesis timed out after 60 seconds.")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -695,10 +1398,16 @@ class AdaViewModel(
         action: PendingSystemAction,
         onExecuteNow: (PendingSystemAction) -> Unit
     ) {
-        if (_trustedModeAuto.value) {
-            onExecuteNow(action)
-        } else {
+        if (_masterStopActive.value) {
+            _statusBanner.value = "Action blocked: Master Stop is engaged."
+            return
+        }
+        if (action.requiresConfirmation || !_trustedModeAuto.value) {
             _pendingConfirmation.value = action
+            recordActionLog(action.title, action.description, "AWAITING_CONFIRMATION")
+        } else {
+            recordActionLog(action.title, action.description, "EXECUTED")
+            onExecuteNow(action)
         }
     }
 

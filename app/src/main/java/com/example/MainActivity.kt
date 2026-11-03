@@ -1,7 +1,6 @@
 package com.example
 
 import android.Manifest
-import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -29,36 +28,60 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Architecture
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsInputComponent
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +95,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -87,12 +111,19 @@ import com.example.auth.configureAppCheck
 import com.example.auth.signOut
 import com.example.data.model.PendingSystemAction
 import com.example.data.repository.AdaRepository
+import com.example.service.JarvisExternalApiService
+import com.example.service.JarvisNotificationListenerService
+import com.example.service.PhoneControlManager
 import com.example.ui.screens.CadPrinterScreen
 import com.example.ui.screens.HudCoreScreen
+import com.example.ui.screens.InternetSearchScreen
+import com.example.ui.screens.JarvisSettingsDialog
 import com.example.ui.screens.MemoryScreen
+import com.example.ui.screens.PhoneControlScreen
 import com.example.ui.screens.SystemsKasaScreen
 import com.example.ui.screens.VisionScreen
 import com.example.ui.theme.HudAmber
+import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanDim
 import com.example.ui.theme.HudDeepNavy
@@ -108,23 +139,31 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-enum class AdaTab(val route: String, val labelRes: Int, val icon: ImageVector) {
-    HUD("hud_core", R.string.nav_hud, Icons.Default.GraphicEq),
-    VISION("vision_deck", R.string.nav_vision, Icons.Default.Visibility),
-    MEMORY("memory_vault", R.string.nav_memory, Icons.Default.Memory),
-    CAD("cad_lab", R.string.nav_cad, Icons.Default.Architecture),
-    SYSTEMS("systems_iot", R.string.nav_systems, Icons.Default.SettingsInputComponent)
+enum class AdaTab(
+    val route: String,
+    val labelRes: Int,
+    val icon: ImageVector,
+    val showInBottomBar: Boolean = true
+) {
+    HUD("hud_core", R.string.nav_hud, Icons.Default.GraphicEq, true),
+    SEARCH("internet_search", R.string.nav_search, Icons.Default.Public, true),
+    PHONE("phone_control", R.string.nav_phone, Icons.Default.PhoneAndroid, true),
+    VISION("vision_deck", R.string.nav_vision, Icons.Default.Visibility, true),
+    MEMORY("memory_vault", R.string.nav_memory, Icons.Default.Memory, true),
+    CAD("cad_lab", R.string.nav_cad, Icons.Default.Architecture, false),
+    SYSTEMS("systems_iot", R.string.nav_systems, Icons.Default.SettingsInputComponent, false)
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // STEP 1: Configure App Check with launch intent before any UI or Firebase operations
         configureAppCheck(this, intent)
-
         enableEdgeToEdge()
 
         setContent {
@@ -164,6 +203,8 @@ fun AdaAuthenticatedHudApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
+    val phoneManager = remember { PhoneControlManager(context) }
+    val externalApi = remember { JarvisExternalApiService(context) }
 
     val viewModel: AdaViewModel = viewModel(
         key = currentUserId,
@@ -181,7 +222,10 @@ fun AdaAuthenticatedHudApp(
 
     val emotionState by viewModel.emotionState.collectAsStateWithLifecycle()
     val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
+    val conversationSessions by viewModel.conversationSessions.collectAsStateWithLifecycle()
     val chatTaskState by viewModel.chatTaskState.collectAsStateWithLifecycle()
+    val searchTaskState by viewModel.searchTaskState.collectAsStateWithLifecycle()
+    val activeSearchBundle by viewModel.activeSearchBundle.collectAsStateWithLifecycle()
     val visionTaskState by viewModel.visionTaskState.collectAsStateWithLifecycle()
     val cadTaskState by viewModel.cadTaskState.collectAsStateWithLifecycle()
     val memoriesState by viewModel.memoriesState.collectAsStateWithLifecycle()
@@ -198,16 +242,106 @@ fun AdaAuthenticatedHudApp(
     val pendingMemoryPrompt by viewModel.pendingMemoryPrompt.collectAsStateWithLifecycle()
     val statusBanner by viewModel.statusBanner.collectAsStateWithLifecycle()
 
-    var currentTab by rememberSaveable { mutableStateOf(AdaTab.HUD) }
+    val voiceConfig by viewModel.voiceConfig.collectAsStateWithLifecycle()
+    val selectedAiEngine by viewModel.selectedAiEngine.collectAsStateWithLifecycle()
+    val jarvisPersonality by viewModel.jarvisPersonality.collectAsStateWithLifecycle()
+    val apiKeysConfig by viewModel.apiKeysConfig.collectAsStateWithLifecycle()
+    val masterStopActive by viewModel.masterStopActive.collectAsStateWithLifecycle()
+    val emergencyAutomationDisabled by viewModel.emergencyAutomationDisabled.collectAsStateWithLifecycle()
+    val flashlightOn by viewModel.flashlightOn.collectAsStateWithLifecycle()
+    val selectedContactName by viewModel.selectedContactName.collectAsStateWithLifecycle()
+    val selectedContactPhone by viewModel.selectedContactPhone.collectAsStateWithLifecycle()
+    val actionHistoryLog by viewModel.actionHistoryLog.collectAsStateWithLifecycle()
 
-    // BackHandler for secondary tabs returning to HUD Core
+    val notifications by JarvisNotificationListenerService.notifications.collectAsStateWithLifecycle()
+    val allowedPackages by JarvisNotificationListenerService.allowedPackageFilter.collectAsStateWithLifecycle()
+
+    var currentTab by rememberSaveable { mutableStateOf(AdaTab.HUD) }
+    var settingsDialogSection by rememberSaveable { mutableStateOf<String?>(null) }
+    var hasCameraPerm by remember { mutableStateOf(phoneManager.hasCameraPermission()) }
+
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
     BackHandler(enabled = currentTab != AdaTab.HUD) {
         currentTab = AdaTab.HUD
     }
 
-    // TextToSpeech with Half-Duplex Echo Guard
     val ttsRef = remember { mutableStateOf<TextToSpeech?>(null) }
     val speechRecognizerRef = remember { mutableStateOf<SpeechRecognizer?>(null) }
+
+    fun speakJarvisResponse(text: String) {
+        if (masterStopActive || text.isBlank()) return
+        scope.launch {
+            val elevenKey = apiKeysConfig.effectiveElevenLabsKey
+            val voiceId = apiKeysConfig.effectiveElevenLabsVoiceId
+            var usedElevenLabs = false
+            if (voiceConfig.preferElevenLabs && elevenKey.isNotBlank()) {
+                usedElevenLabs = externalApi.speakWithElevenLabs(
+                    apiKey = elevenKey,
+                    voiceId = voiceId,
+                    text = text,
+                    speechRate = voiceConfig.speechRate,
+                    onStart = {
+                        speechRecognizerRef.value?.cancel()
+                        viewModel.setSpeakingState(true)
+                    },
+                    onComplete = {
+                        viewModel.setSpeakingState(false)
+                        if (voiceConfig.conversationVoiceMode && !masterStopActive) {
+                            startVoiceListening(
+                                context,
+                                speechRecognizerRef.value,
+                                ttsRef.value,
+                                halfDuplexEnabled,
+                                viewModel
+                            )
+                        }
+                    }
+                )
+            }
+            if (!usedElevenLabs) {
+                ttsRef.value?.setSpeechRate(voiceConfig.speechRate.coerceIn(0.5f, 2.0f))
+                ttsRef.value?.setPitch(voiceConfig.pitch.coerceIn(0.6f, 1.4f))
+                ttsRef.value?.speak(
+                    text,
+                    TextToSpeech.QUEUE_FLUSH,
+                    null,
+                    "jarvis_reply_${System.currentTimeMillis()}"
+                )
+            }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasCameraPerm = granted
+        if (granted) {
+            val res = phoneManager.setFlashlight(true)
+            res.onSuccess {
+                viewModel.updateFlashlightState(true)
+                viewModel.showStatusBanner("Flashlight turned ON")
+                viewModel.recordActionLog("Flashlight Control", "Torch turned ON after permission grant", "EXECUTED")
+            }.onFailure {
+                viewModel.showStatusBanner(it.localizedMessage ?: "Flashlight unavailable")
+            }
+        } else {
+            viewModel.showStatusBanner("Camera permission denied by user — cannot toggle hardware flashlight.")
+            viewModel.recordActionLog("Flashlight Blocked", "Android CAMERA permission denied", "BLOCKED")
+        }
+    }
+
+    fun handleExecuteAction(action: PendingSystemAction) {
+        executeAndroidSystemAction(
+            context = context,
+            action = action,
+            phoneManager = phoneManager,
+            viewModel = viewModel,
+            onRequestCameraPerm = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+            onSpeak = { speakJarvisResponse(it) },
+            onSwitchTab = { currentTab = it }
+        )
+    }
 
     DisposableEffect(context) {
         var ttsInstance: TextToSpeech? = null
@@ -216,13 +350,23 @@ fun AdaAuthenticatedHudApp(
                 ttsInstance?.language = Locale.US
                 ttsInstance?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
-                        // Half-Duplex Echo Protection: stop mic while ADA speaks
                         speechRecognizerRef.value?.cancel()
                         viewModel.setSpeakingState(true)
                     }
 
                     override fun onDone(utteranceId: String?) {
                         viewModel.setSpeakingState(false)
+                        if (viewModel.voiceConfig.value.conversationVoiceMode && !viewModel.masterStopActive.value) {
+                            scope.launch {
+                                startVoiceListening(
+                                    context,
+                                    speechRecognizerRef.value,
+                                    ttsRef.value,
+                                    viewModel.halfDuplexEnabled.value,
+                                    viewModel
+                                )
+                            }
+                        }
                     }
 
                     @Deprecated("Deprecated in Java")
@@ -259,17 +403,9 @@ fun AdaAuthenticatedHudApp(
                         if (spokenText.isNotBlank()) {
                             viewModel.sendCommandToAda(
                                 userText = spokenText,
-                                onSpeakReply = { replyText ->
-                                    ttsRef.value?.speak(
-                                        replyText,
-                                        TextToSpeech.QUEUE_FLUSH,
-                                        null,
-                                        "ada_reply_${System.currentTimeMillis()}"
-                                    )
-                                },
-                                onExecuteSystemAction = { action ->
-                                    executeAndroidSystemAction(context, action, viewModel)
-                                }
+                                externalApi = externalApi,
+                                onSpeakReply = { replyText -> speakJarvisResponse(replyText) },
+                                onExecuteSystemAction = { action -> handleExecuteAction(action) }
                             )
                         }
                     }
@@ -282,6 +418,7 @@ fun AdaAuthenticatedHudApp(
         speechRecognizerRef.value = recognizer
 
         onDispose {
+            externalApi.stopElevenLabsPlayback()
             recognizer?.destroy()
             ttsInstance?.stop()
             ttsInstance?.shutdown()
@@ -294,192 +431,498 @@ fun AdaAuthenticatedHudApp(
         if (granted) {
             startVoiceListening(context, speechRecognizerRef.value, ttsRef.value, halfDuplexEnabled, viewModel)
         } else {
-            Toast.makeText(context, "Microphone permission required for Voice Link", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Microphone permission required for JARVIS Voice Link", Toast.LENGTH_SHORT).show()
         }
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = {
-            AdaTopHudBar(
-                activeProject = activeProject,
-                userDisplayName = userDisplayName,
-                statusBanner = statusBanner,
-                onDismissBanner = { viewModel.clearStatusBanner() },
-                onSignOut = {
-                    signOut(context, credentialManager, {}, scope)
-                }
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = HudPanelSurface,
-                tonalElevation = 8.dp
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = HudPanelSurface,
+                drawerContentColor = HudIceWhite,
+                modifier = Modifier.width(300.dp)
             ) {
-                AdaTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentTab == tab,
-                        onClick = { currentTab = tab },
-                        icon = {
-                            Icon(
-                                imageVector = tab.icon,
-                                contentDescription = stringResource(tab.labelRes)
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = stringResource(tab.labelRes),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = HudObsidian,
-                            selectedTextColor = HudCyan,
-                            indicatorColor = HudCyan,
-                            unselectedIconColor = HudMutedText,
-                            unselectedTextColor = HudMutedText
-                        ),
-                        modifier = Modifier.testTag("nav_tab_${tab.route}")
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "JARVIS AI // COMMAND SIDEBAR",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = HudCyan,
+                        fontWeight = FontWeight.Bold
                     )
+                    Text(
+                        text = "OP: $userDisplayName",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = HudMutedText
+                    )
+                    HorizontalDivider(color = HudCyanDim.copy(alpha = 0.35f), modifier = Modifier.padding(vertical = 6.dp))
+
+                    // 1. New Conversation
+                    NavigationDrawerItem(
+                        label = { Text("New Conversation") },
+                        selected = false,
+                        onClick = {
+                            viewModel.startNewConversation()
+                            currentTab = AdaTab.HUD
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.AddComment, contentDescription = null, tint = HudCyan) },
+                        colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = HudObsidian.copy(alpha = 0.5f))
+                    )
+
+                    // 2. Internet Search
+                    NavigationDrawerItem(
+                        label = { Text("Internet Search") },
+                        selected = currentTab == AdaTab.SEARCH,
+                        onClick = {
+                            currentTab = AdaTab.SEARCH
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.Public, contentDescription = null, tint = HudSkyBlue) }
+                    )
+
+                    // 3. Phone Control
+                    NavigationDrawerItem(
+                        label = { Text("Phone Control Dashboard") },
+                        selected = currentTab == AdaTab.PHONE,
+                        onClick = {
+                            currentTab = AdaTab.PHONE
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = HudEmerald) }
+                    )
+
+                    // 4. CAD Lab & 3D Printer
+                    NavigationDrawerItem(
+                        label = { Text("Parametric CAD & 3D Printer") },
+                        selected = currentTab == AdaTab.CAD,
+                        onClick = {
+                            currentTab = AdaTab.CAD
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.Architecture, contentDescription = null, tint = HudCyan) }
+                    )
+
+                    // 5. Kasa Smart Home & IoT
+                    NavigationDrawerItem(
+                        label = { Text("Smart Home & Workshop IoT") },
+                        selected = currentTab == AdaTab.SYSTEMS,
+                        onClick = {
+                            currentTab = AdaTab.SYSTEMS
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.SettingsInputComponent, contentDescription = null, tint = HudSkyBlue) }
+                    )
+
+                    HorizontalDivider(color = HudCyanDim.copy(alpha = 0.35f), modifier = Modifier.padding(vertical = 6.dp))
+                    Text(
+                        text = "SYSTEM CONFIGURATION",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = HudSkyBlue
+                    )
+
+                    // 6. Voice Settings
+                    NavigationDrawerItem(
+                        label = { Text("Voice Settings (ElevenLabs / TTS)") },
+                        selected = false,
+                        onClick = {
+                            settingsDialogSection = "VOICE"
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = HudCyan) }
+                    )
+
+                    // 7. AI Settings
+                    NavigationDrawerItem(
+                        label = { Text("AI Settings (GPT-4o / Personality)") },
+                        selected = false,
+                        onClick = {
+                            settingsDialogSection = "AI"
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.Psychology, contentDescription = null, tint = HudEmerald) }
+                    )
+
+                    // 8. API Configuration
+                    NavigationDrawerItem(
+                        label = { Text("API Configuration & Secrets") },
+                        selected = false,
+                        onClick = {
+                            settingsDialogSection = "API"
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.Key, contentDescription = null, tint = HudAmber) }
+                    )
+
+                    // 9. Conversation History
+                    if (conversationSessions.isNotEmpty()) {
+                        HorizontalDivider(color = HudCyanDim.copy(alpha = 0.35f), modifier = Modifier.padding(vertical = 6.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.History, contentDescription = null, tint = HudCyan, modifier = Modifier.size(16.dp))
+                            Text(
+                                text = "CONVERSATION HISTORY (${conversationSessions.size})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = HudCyan
+                            )
+                        }
+                        conversationSessions.forEach { session ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = HudObsidian,
+                                border = BorderStroke(1.dp, HudCyanDim.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.loadConversationSession(session)
+                                        currentTab = AdaTab.HUD
+                                        scope.launch { drawerState.close() }
+                                    }
+                            ) {
+                                Text(
+                                    text = session.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = HudIceWhite,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(HudObsidian, HudDeepNavy, HudObsidian)
-                    )
-                )
-                .padding(innerPadding)
-        ) {
-            when (currentTab) {
-                AdaTab.HUD -> HudCoreScreen(
-                    emotionState = emotionState,
-                    chatMessages = chatMessages,
-                    chatTaskState = chatTaskState,
-                    isListening = isListening,
-                    isSpeaking = isSpeaking,
-                    halfDuplexEnabled = halfDuplexEnabled,
-                    trustedModeAuto = trustedModeAuto,
-                    pendingMemoryPrompt = pendingMemoryPrompt,
-                    onToggleVoiceListen = {
-                        if (isListening) {
-                            speechRecognizerRef.value?.stopListening()
-                            viewModel.setListeningState(false)
+    ) {
+        Scaffold(
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = {
+                AdaTopHudBar(
+                    phoneManager = phoneManager,
+                    activeProject = activeProject,
+                    userDisplayName = userDisplayName,
+                    masterStopActive = masterStopActive,
+                    statusBanner = statusBanner,
+                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onOpenSettings = { settingsDialogSection = "VOICE" },
+                    onToggleMasterStop = {
+                        if (masterStopActive) {
+                            viewModel.resetMasterStop()
                         } else {
-                            val hasMic = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasMic) {
-                                startVoiceListening(
-                                    context,
-                                    speechRecognizerRef.value,
-                                    ttsRef.value,
-                                    halfDuplexEnabled,
-                                    viewModel
-                                )
-                            } else {
-                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            viewModel.triggerMasterStop {
+                                externalApi.stopElevenLabsPlayback()
+                                ttsRef.value?.stop()
+                                speechRecognizerRef.value?.cancel()
                             }
                         }
                     },
-                    onStopSpeaking = {
-                        ttsRef.value?.stop()
-                        viewModel.setSpeakingState(false)
-                    },
-                    onToggleTrustedMode = { viewModel.setTrustedModeAuto(it) },
-                    onToggleHalfDuplex = { viewModel.setHalfDuplexEnabled(it) },
-                    onSelectMood = { viewModel.updateManualMood(it) },
-                    onSendCommand = { text ->
-                        viewModel.sendCommandToAda(
-                            userText = text,
-                            onSpeakReply = { replyText ->
-                                ttsRef.value?.speak(
-                                    replyText,
-                                    TextToSpeech.QUEUE_FLUSH,
-                                    null,
-                                    "ada_reply_${System.currentTimeMillis()}"
+                    onDismissBanner = { viewModel.clearStatusBanner() },
+                    onSignOut = {
+                        signOut(context, credentialManager, {}, scope)
+                    }
+                )
+            },
+            bottomBar = {
+                NavigationBar(
+                    containerColor = HudPanelSurface,
+                    tonalElevation = 8.dp
+                ) {
+                    AdaTab.entries.filter { it.showInBottomBar }.forEach { tab ->
+                        NavigationBarItem(
+                            selected = currentTab == tab,
+                            onClick = { currentTab = tab },
+                            icon = {
+                                Icon(
+                                    imageVector = tab.icon,
+                                    contentDescription = stringResource(tab.labelRes)
                                 )
                             },
-                            onExecuteSystemAction = { action ->
-                                executeAndroidSystemAction(context, action, viewModel)
-                            }
+                            label = {
+                                Text(
+                                    text = stringResource(tab.labelRes),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = HudObsidian,
+                                selectedTextColor = HudCyan,
+                                indicatorColor = HudCyan,
+                                unselectedIconColor = HudMutedText,
+                                unselectedTextColor = HudMutedText
+                            ),
+                            modifier = Modifier.testTag("nav_tab_${tab.route}")
                         )
-                    },
-                    onConfirmMemory = { viewModel.saveMemorySuggestion(it) },
-                    onDismissMemory = { viewModel.dismissMemoryPrompt() },
-                    onTriggerAction = { action ->
-                        viewModel.requestOrExecuteSystemAction(action) {
-                            executeAndroidSystemAction(context, it, viewModel)
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(HudObsidian, HudDeepNavy, HudObsidian)
+                        )
+                    )
+                    .padding(innerPadding)
+            ) {
+                when (currentTab) {
+                    AdaTab.HUD -> HudCoreScreen(
+                        emotionState = emotionState,
+                        chatMessages = chatMessages,
+                        chatTaskState = chatTaskState,
+                        isListening = isListening,
+                        isSpeaking = isSpeaking,
+                        halfDuplexEnabled = halfDuplexEnabled,
+                        trustedModeAuto = trustedModeAuto,
+                        conversationVoiceMode = voiceConfig.conversationVoiceMode,
+                        pendingMemoryPrompt = pendingMemoryPrompt,
+                        onToggleVoiceListen = {
+                            if (isListening) {
+                                speechRecognizerRef.value?.stopListening()
+                                viewModel.setListeningState(false)
+                            } else {
+                                val hasMic = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (hasMic) {
+                                    startVoiceListening(
+                                        context,
+                                        speechRecognizerRef.value,
+                                        ttsRef.value,
+                                        halfDuplexEnabled,
+                                        viewModel
+                                    )
+                                } else {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        },
+                        onStopSpeaking = {
+                            externalApi.stopElevenLabsPlayback()
+                            ttsRef.value?.stop()
+                            viewModel.setSpeakingState(false)
+                        },
+                        onToggleTrustedMode = { viewModel.setTrustedModeAuto(it) },
+                        onToggleHalfDuplex = { viewModel.setHalfDuplexEnabled(it) },
+                        onToggleConversationVoiceMode = {
+                            val updated = voiceConfig.copy(conversationVoiceMode = !voiceConfig.conversationVoiceMode)
+                            viewModel.updateVoiceConfig(updated)
+                            viewModel.showStatusBanner(
+                                if (updated.conversationVoiceMode) "Conversation Voice Mode: ON"
+                                else "Conversation Voice Mode: OFF"
+                            )
+                        },
+                        onSelectMood = { viewModel.updateManualMood(it) },
+                        onSendCommand = { text ->
+                            viewModel.sendCommandToAda(
+                                userText = text,
+                                externalApi = externalApi,
+                                onSpeakReply = { replyText -> speakJarvisResponse(replyText) },
+                                onExecuteSystemAction = { action -> handleExecuteAction(action) }
+                            )
+                        },
+                        onQuickWebSearch = { query ->
+                            currentTab = AdaTab.SEARCH
+                            if (query.isNotBlank()) {
+                                viewModel.executeInternetSearch(
+                                    query = query,
+                                    category = "ALL",
+                                    externalApi = externalApi,
+                                    onSpeakReply = { speakJarvisResponse(it) }
+                                )
+                            }
+                        },
+                        onSpeakMessage = { text -> speakJarvisResponse(text) },
+                        onRegenerateMessage = { msg ->
+                            viewModel.regenerateResponse(
+                                message = msg,
+                                externalApi = externalApi,
+                                onSpeakReply = { speakJarvisResponse(it) },
+                                onExecuteSystemAction = { handleExecuteAction(it) }
+                            )
+                        },
+                        onNewConversation = { viewModel.startNewConversation() },
+                        onClearConversation = { viewModel.clearCurrentConversation() },
+                        onConfirmMemory = { viewModel.saveMemorySuggestion(it) },
+                        onDismissMemory = { viewModel.dismissMemoryPrompt() },
+                        onTriggerAction = { action ->
+                            viewModel.requestOrExecuteSystemAction(action) {
+                                handleExecuteAction(it)
+                            }
                         }
-                    }
-                )
+                    )
 
-                AdaTab.VISION -> VisionScreen(
-                    visionTaskState = visionTaskState,
-                    onAnalyzeBitmap = { bmp, mode ->
-                        viewModel.analyzeVisionFrame(bmp, mode)
-                    }
-                )
+                    AdaTab.SEARCH -> InternetSearchScreen(
+                        searchTaskState = searchTaskState,
+                        activeSearchBundle = activeSearchBundle,
+                        onExecuteSearch = { q, cat ->
+                            viewModel.executeInternetSearch(
+                                query = q,
+                                category = cat,
+                                externalApi = externalApi,
+                                onSpeakReply = { speakJarvisResponse(it) }
+                            )
+                        },
+                        onAskFollowUp = { followUp ->
+                            viewModel.askSearchFollowUp(
+                                followUpQuestion = followUp,
+                                externalApi = externalApi,
+                                onSpeakReply = { speakJarvisResponse(it) }
+                            )
+                        },
+                        onSpeakSummary = { speakJarvisResponse(it) },
+                        onOpenGoogleBrowser = { q -> phoneManager.openGoogleWebSearch(q) }
+                    )
 
-                AdaTab.MEMORY -> MemoryScreen(
-                    memoriesState = memoriesState,
-                    autoSaveMemory = autoSaveMemory,
-                    onToggleAutoSave = { viewModel.setAutoSaveMemory(it) },
-                    onAddMemory = { cat, key, content, imp ->
-                        viewModel.addManualMemory(cat, key, content, imp)
-                    },
-                    onDeleteMemory = { viewModel.deleteMemory(it) }
-                )
-
-                AdaTab.CAD -> CadPrinterScreen(
-                    cadModelsState = cadModelsState,
-                    printersState = printersState,
-                    cadTaskState = cadTaskState,
-                    onGenerateCad = { viewModel.generateParametricCad(it) },
-                    onDeleteCad = { viewModel.deleteCadModel(it) },
-                    onDispatchToPrinter = { model, printer ->
-                        viewModel.dispatchCadToPrinter(model, printer)
-                    },
-                    onUpdatePrinterStatus = { printer, status ->
-                        viewModel.updatePrinterJobStatus(printer, status)
-                    }
-                )
-
-                AdaTab.SYSTEMS -> SystemsKasaScreen(
-                    smartDevicesState = smartDevicesState,
-                    activeProject = activeProject,
-                    onSelectProject = { viewModel.setActiveProject(it) },
-                    onToggleDevice = { viewModel.toggleSmartDevice(it) },
-                    onBrightnessChange = { dev, b -> viewModel.updateSmartDeviceBrightness(dev, b) },
-                    onApplyScene = { viewModel.applySmartScene(it) },
-                    onAddDevice = { name, room, type, ip ->
-                        viewModel.addSmartDevice(name, room, type, ip)
-                    },
-                    onTriggerSystemAction = { action ->
-                        viewModel.requestOrExecuteSystemAction(action) {
-                            executeAndroidSystemAction(context, it, viewModel)
+                    AdaTab.PHONE -> PhoneControlScreen(
+                        phoneManager = phoneManager,
+                        flashlightOn = flashlightOn,
+                        hasCameraPermission = hasCameraPerm,
+                        masterStopActive = masterStopActive,
+                        emergencyAutomationDisabled = emergencyAutomationDisabled,
+                        selectedContactName = selectedContactName,
+                        selectedContactPhone = selectedContactPhone,
+                        notifications = notifications,
+                        allowedPackages = allowedPackages,
+                        actionHistoryLog = actionHistoryLog,
+                        onToggleFlashlight = { enable ->
+                            if (!phoneManager.hasCameraPermission()) {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            } else {
+                                val res = phoneManager.setFlashlight(enable)
+                                res.onSuccess { state ->
+                                    viewModel.updateFlashlightState(state)
+                                    viewModel.showStatusBanner("Flashlight turned ${if (state) "ON" else "OFF"}")
+                                    viewModel.recordActionLog("Flashlight Control", "Torch turned ${if (state) "ON" else "OFF"}", "EXECUTED")
+                                }.onFailure { err ->
+                                    viewModel.showStatusBanner(err.localizedMessage ?: "Flashlight error")
+                                    viewModel.recordActionLog("Flashlight Error", err.localizedMessage ?: "Failed", "BLOCKED")
+                                }
+                            }
+                        },
+                        onRequestCameraPermission = {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        },
+                        onUpdateSelectedContact = { name, phone ->
+                            viewModel.updateSelectedContact(name, phone)
+                        },
+                        onRequestConfirmedAction = { action ->
+                            viewModel.requestOrExecuteSystemAction(action) {
+                                handleExecuteAction(it)
+                            }
+                        },
+                        onTriggerMasterStop = {
+                            viewModel.triggerMasterStop {
+                                externalApi.stopElevenLabsPlayback()
+                                ttsRef.value?.stop()
+                                speechRecognizerRef.value?.cancel()
+                            }
+                        },
+                        onResetMasterStop = { viewModel.resetMasterStop() },
+                        onToggleEmergencyDisable = { viewModel.setEmergencyAutomationDisabled(it) },
+                        onToggleAllowedNotificationPackage = {
+                            JarvisNotificationListenerService.toggleAllowedPackage(it)
+                        },
+                        onSpeakText = { speakJarvisResponse(it) },
+                        onRecordLog = { title, detail, status ->
+                            viewModel.recordActionLog(title, detail, status)
                         }
-                    }
-                )
+                    )
+
+                    AdaTab.VISION -> VisionScreen(
+                        visionTaskState = visionTaskState,
+                        onAnalyzeBitmap = { bmp, mode ->
+                            viewModel.analyzeVisionFrame(bmp, mode)
+                        }
+                    )
+
+                    AdaTab.MEMORY -> MemoryScreen(
+                        memoriesState = memoriesState,
+                        autoSaveMemory = autoSaveMemory,
+                        onToggleAutoSave = { viewModel.setAutoSaveMemory(it) },
+                        onAddMemory = { cat, key, content, imp ->
+                            viewModel.addManualMemory(cat, key, content, imp)
+                        },
+                        onDeleteMemory = { viewModel.deleteMemory(it) }
+                    )
+
+                    AdaTab.CAD -> CadPrinterScreen(
+                        cadModelsState = cadModelsState,
+                        printersState = printersState,
+                        cadTaskState = cadTaskState,
+                        onGenerateCad = { viewModel.generateParametricCad(it) },
+                        onDeleteCad = { viewModel.deleteCadModel(it) },
+                        onDispatchToPrinter = { model, printer ->
+                            viewModel.dispatchCadToPrinter(model, printer)
+                        },
+                        onUpdatePrinterStatus = { printer, status ->
+                            viewModel.updatePrinterJobStatus(printer, status)
+                        }
+                    )
+
+                    AdaTab.SYSTEMS -> SystemsKasaScreen(
+                        smartDevicesState = smartDevicesState,
+                        activeProject = activeProject,
+                        onSelectProject = { viewModel.setActiveProject(it) },
+                        onToggleDevice = { viewModel.toggleSmartDevice(it) },
+                        onBrightnessChange = { dev, b -> viewModel.updateSmartDeviceBrightness(dev, b) },
+                        onApplyScene = { viewModel.applySmartScene(it) },
+                        onAddDevice = { name, room, type, ip ->
+                            viewModel.addSmartDevice(name, room, type, ip)
+                        },
+                        onTriggerSystemAction = { action ->
+                            viewModel.requestOrExecuteSystemAction(action) {
+                                handleExecuteAction(it)
+                            }
+                        }
+                    )
+                }
             }
         }
     }
 
-    // Trusted Mode Confirmation Popup (Guarded Mode)
+    // Settings Dialog (Voice / AI Brain / API Keys)
+    settingsDialogSection?.let { section ->
+        JarvisSettingsDialog(
+            initialSection = section,
+            voiceConfig = voiceConfig,
+            selectedAiEngine = selectedAiEngine,
+            jarvisPersonality = jarvisPersonality,
+            apiKeysConfig = apiKeysConfig,
+            onSaveVoiceConfig = { viewModel.updateVoiceConfig(it) },
+            onSaveAiSettings = { eng, pers ->
+                viewModel.updateSelectedAiEngine(eng)
+                viewModel.updateJarvisPersonality(pers)
+            },
+            onSaveApiKeys = { viewModel.updateApiKeysConfig(it) },
+            onTestVoice = { speakJarvisResponse(it) },
+            onDismiss = { settingsDialogSection = null }
+        )
+    }
+
+    // Trusted Mode Confirmation Popup (Guarded Mode & Sensitive Actions)
     pendingConfirmation?.let { action ->
         TrustedActionConfirmationDialog(
             action = action,
             onConfirm = {
                 viewModel.dismissConfirmation()
-                executeAndroidSystemAction(context, action, viewModel)
+                viewModel.recordActionLog(action.title, "User confirmed & executed: ${action.description}", "EXECUTED")
+                handleExecuteAction(action)
             },
             onCancel = {
                 viewModel.dismissConfirmation()
+                viewModel.recordActionLog(action.title, "User cancelled sensitive action", "BLOCKED")
             }
         )
     }
@@ -487,12 +930,34 @@ fun AdaAuthenticatedHudApp(
 
 @Composable
 private fun AdaTopHudBar(
+    phoneManager: PhoneControlManager,
     activeProject: String,
     userDisplayName: String,
+    masterStopActive: Boolean,
     statusBanner: String?,
+    onOpenDrawer: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onToggleMasterStop: () -> Unit,
     onDismissBanner: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    var currentTimeText by remember { mutableStateOf("") }
+    var batteryPct by remember { mutableStateOf(85) }
+    var isCharging by remember { mutableStateOf(false) }
+    var isOnline by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        while (true) {
+            currentTimeText = fmt.format(Date())
+            val bat = phoneManager.readBatteryTelemetry()
+            batteryPct = bat.percentage
+            isCharging = bat.isCharging
+            isOnline = phoneManager.isNetworkOnline()
+            delay(2000L)
+        }
+    }
+
     Surface(
         color = HudPanelSurface,
         border = BorderStroke(0.5.dp, HudCyanDim.copy(alpha = 0.4f)),
@@ -502,44 +967,108 @@ private fun AdaTopHudBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "ADA v2",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = HudCyan
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "// $activeProject",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = HudSkyBlue,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    IconButton(
+                        onClick = onOpenDrawer,
+                        modifier = Modifier.testTag("open_sidebar_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Open JARVIS Sidebar",
+                            tint = HudCyan
                         )
                     }
-                    Text(
-                        text = "OP: $userDisplayName",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = HudMutedText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "JARVIS",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = HudCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = currentTimeText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = HudIceWhite
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.BatteryChargingFull,
+                                    contentDescription = null,
+                                    tint = if (isCharging) HudEmerald else HudSkyBlue,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "$batteryPct%${if (isCharging) "⚡" else ""}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HudSkyBlue
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Wifi,
+                                    contentDescription = null,
+                                    tint = if (isOnline) HudEmerald else HudCrimson,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = if (isOnline) "ONLINE" else "OFFLINE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isOnline) HudEmerald else HudCrimson
+                                )
+                            }
+                        }
+                    }
                 }
 
-                IconButton(
-                    onClick = onSignOut,
-                    modifier = Modifier.testTag("sign_out_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Logout,
-                        contentDescription = stringResource(R.string.sign_out),
-                        tint = HudSkyBlue
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onToggleMasterStop,
+                        modifier = Modifier.testTag("top_master_stop_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.StopCircle,
+                            contentDescription = "Master Stop",
+                            tint = if (masterStopActive) HudCrimson else HudAmber
+                        )
+                    }
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.testTag("top_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "JARVIS Settings",
+                            tint = HudCyan
+                        )
+                    }
+                    IconButton(
+                        onClick = onSignOut,
+                        modifier = Modifier.testTag("sign_out_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = stringResource(R.string.sign_out),
+                            tint = HudSkyBlue
+                        )
+                    }
                 }
             }
 
@@ -597,7 +1126,7 @@ private fun TrustedActionConfirmationDialog(
         },
         title = {
             Text(
-                text = "TRUSTED MODE GUARD // CONFIRM ACTION",
+                text = "JARVIS SECURITY GUARD // CONFIRM ACTION",
                 style = MaterialTheme.typography.titleLarge,
                 color = HudAmber
             )
@@ -620,7 +1149,7 @@ private fun TrustedActionConfirmationDialog(
                     border = BorderStroke(1.dp, HudCyanDim.copy(alpha = 0.5f))
                 ) {
                     Text(
-                        text = "Tip: Switch to 'TRUSTED MODE: AUTO' on the HUD to execute verified intents without confirmation.",
+                        text = "Security Policy: Calls, SMS, WhatsApp messages, and sensitive device actions always require explicit confirmation before execution.",
                         style = MaterialTheme.typography.labelSmall,
                         color = HudSkyBlue,
                         modifier = Modifier.padding(8.dp)
@@ -677,10 +1206,85 @@ private fun startVoiceListening(
 private fun executeAndroidSystemAction(
     context: Context,
     action: PendingSystemAction,
-    viewModel: AdaViewModel
+    phoneManager: PhoneControlManager,
+    viewModel: AdaViewModel,
+    onRequestCameraPerm: () -> Unit,
+    onSpeak: (String) -> Unit,
+    onSwitchTab: (AdaTab) -> Unit
 ) {
     try {
         when (action.actionType) {
+            "FLASHLIGHT_ON", "FLASHLIGHT_OFF" -> {
+                val enable = action.actionType == "FLASHLIGHT_ON"
+                if (!phoneManager.hasCameraPermission()) {
+                    viewModel.showStatusBanner("Requesting Camera permission for Flashlight…")
+                    onRequestCameraPerm()
+                } else {
+                    val res = phoneManager.setFlashlight(enable)
+                    res.onSuccess {
+                        viewModel.updateFlashlightState(enable)
+                        viewModel.showStatusBanner("Flashlight turned ${if (enable) "ON" else "OFF"}")
+                    }.onFailure { err ->
+                        viewModel.showStatusBanner(err.localizedMessage ?: "Flashlight unavailable on this device")
+                    }
+                }
+            }
+
+            "BATTERY_CHECK" -> {
+                val bat = phoneManager.readBatteryTelemetry()
+                val msg = "Sir, your battery is at ${bat.percentage} percent, ${if (bat.isCharging) "charging via ${bat.powerSource}" else "running on battery cell"} (${bat.temperatureC}°C)."
+                viewModel.showStatusBanner(msg)
+                onSpeak(msg)
+            }
+
+            "READ_NOTIFICATIONS" -> {
+                if (!JarvisNotificationListenerService.isNotificationAccessGranted(context)) {
+                    viewModel.showStatusBanner("Notification Listener permission is not enabled yet. Opening Phone Control…")
+                    onSwitchTab(AdaTab.PHONE)
+                } else {
+                    val list = JarvisNotificationListenerService.notifications.value
+                    val msg = if (list.isEmpty()) {
+                        "Sir, you have no unread notifications."
+                    } else {
+                        "You have ${list.size} notifications. Latest from ${list.first().appLabel}: ${list.first().title}."
+                    }
+                    viewModel.showStatusBanner(msg)
+                }
+            }
+
+            "SET_ALARM" -> {
+                val parts = action.targetOrQuery.split(":")
+                val hour = parts.getOrNull(0)?.toIntOrNull() ?: 7
+                val min = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                val res = phoneManager.setSystemAlarm(hour, min, action.secondaryParam)
+                res.onSuccess { viewModel.showStatusBanner(it) }
+                    .onFailure { viewModel.showStatusBanner(it.localizedMessage ?: "Could not set alarm") }
+            }
+
+            "CALL_DIAL" -> {
+                val res = phoneManager.initiateDialCall(action.targetOrQuery)
+                res.onSuccess { viewModel.showStatusBanner(it) }
+                    .onFailure { viewModel.showStatusBanner(it.localizedMessage ?: "Dialer unavailable") }
+            }
+
+            "SEND_SMS" -> {
+                val res = phoneManager.composeSmsMessage(action.targetOrQuery, action.secondaryParam)
+                res.onSuccess { viewModel.showStatusBanner(it) }
+                    .onFailure { viewModel.showStatusBanner(it.localizedMessage ?: "Messaging app unavailable") }
+            }
+
+            "OPEN_SETTINGS" -> {
+                val res = phoneManager.openSystemSettings(action.targetOrQuery)
+                res.onSuccess { viewModel.showStatusBanner(it) }
+                    .onFailure { viewModel.showStatusBanner(it.localizedMessage ?: "Settings unavailable") }
+            }
+
+            "OPEN_APP" -> {
+                val res = phoneManager.launchAppByPackageOrName(action.targetOrQuery)
+                res.onSuccess { viewModel.showStatusBanner(it) }
+                    .onFailure { viewModel.showStatusBanner(it.localizedMessage ?: "App not installed") }
+            }
+
             "YOUTUBE_PLAY" -> {
                 val query = Uri.encode(action.targetOrQuery)
                 val ytIntent = Intent(
@@ -701,30 +1305,12 @@ private fun executeAndroidSystemAction(
                 try {
                     context.startActivity(sendIntent)
                 } catch (_: Exception) {
-                    // Fallback to generic share chooser or wa.me web link
-                    val shareIntent = Intent.createChooser(
-                        Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, "[To: ${action.targetOrQuery}] $msg")
-                        },
-                        "Dispatch Message via"
-                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(shareIntent)
+                    phoneManager.shareTextViaSharesheet("[To: ${action.targetOrQuery}] $msg", "Dispatch via")
                 }
             }
 
             "WEB_SEARCH" -> {
-                val raw = action.targetOrQuery.trim()
-                val url = if (raw.startsWith("http://") || raw.startsWith("https://")) {
-                    raw
-                } else {
-                    "https://www.google.com/search?q=${Uri.encode(raw)}"
-                }
-                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                    putExtra(SearchManager.QUERY, raw)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(browserIntent)
+                phoneManager.openGoogleWebSearch(action.targetOrQuery)
             }
 
             "KASA_SCENE" -> {
@@ -739,6 +1325,6 @@ private fun executeAndroidSystemAction(
             }
         }
     } catch (e: Exception) {
-        Toast.makeText(context, "Could not launch external intent: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Could not execute action: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
     }
 }
