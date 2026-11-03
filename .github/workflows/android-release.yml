@@ -1,0 +1,141 @@
+name: JARVIS Android Release & OTA Update (v1.1.1)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version (e.g. 1.1.1)'
+        required: true
+        default: '1.1.1'
+      release_notes:
+        description: 'Release notes summary'
+        required: false
+        default: 'JARVIS AI v1.1.1 Signed Release with OTA version.json manifest'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Signed APK & Publish GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore Persistent Signing Keystore (debug.keystore.base64)
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Restored persistent signing keystore from debug.keystore.base64"
+          elif [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > debug.keystore
+            echo "Restored signing keystore from KEYSTORE_BASE64 secret"
+          else
+            echo "ERROR: No debug.keystore.base64 found!"
+            exit 1
+          fi
+          keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1:|SHA256:"
+
+      - name: Prepare .env from Repository Secrets
+        run: |
+          cp .env.example .env
+          if [ -n "${{ secrets.OPENAI_API_KEY }}" ]; then
+            sed -i "s|OPENAI_API_KEY=.*|OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}|" .env
+          fi
+          if [ -n "${{ secrets.SEARCH_API_KEY }}" ]; then
+            sed -i "s|SEARCH_API_KEY=.*|SEARCH_API_KEY=${{ secrets.SEARCH_API_KEY }}|" .env
+          fi
+          if [ -n "${{ secrets.ELEVENLABS_API_KEY }}" ]; then
+            sed -i "s|ELEVENLABS_API_KEY=.*|ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }}|" .env
+          fi
+          if [ -n "${{ secrets.ELEVENLABS_VOICE_ID }}" ]; then
+            sed -i "s|ELEVENLABS_VOICE_ID=.*|ELEVENLABS_VOICE_ID=${{ secrets.ELEVENLABS_VOICE_ID }}|" .env
+          fi
+
+      - name: Build Signed APK (v1.1.1)
+        run: gradle assembleDebug --stacktrace
+
+      - name: Package Signed APK & Generate version.json
+        id: package_release
+        run: |
+          VERSION_NAME="${{ github.event.inputs.release_version || '1.1.1' }}"
+          VERSION_TAG="v${VERSION_NAME#v}"
+          APK_NAME="JARVIS-AI-${VERSION_TAG}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "${APK_NAME}"
+          APK_SHA256=$(sha256sum "${APK_NAME}" | awk '{print $1}')
+
+          cat > version.json <<EOF
+          {
+            "appName": "JARVIS AI (ADA v2)",
+            "packageName": "com.aistudio.adaassistant.jarvis",
+            "versionName": "${VERSION_NAME#v}",
+            "versionCode": 111,
+            "releaseTag": "${VERSION_TAG}",
+            "releaseDate": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "minSdk": 24,
+            "targetSdk": 36,
+            "mandatoryUpdate": false,
+            "apkFileName": "${APK_NAME}",
+            "apkSha256Checksum": "${APK_SHA256}",
+            "downloadUrl": "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${APK_NAME}",
+            "releasePageUrl": "https://github.com/${{ github.repository }}/releases/tag/${VERSION_TAG}",
+            "versionJsonUrl": "https://raw.githubusercontent.com/${{ github.repository }}/main/version.json",
+            "signingCertificate": {
+              "keyAlias": "androiddebugkey",
+              "keystoreBase64File": "debug.keystore.base64",
+              "sha1": "1A:8D:F9:BB:89:5C:A3:A4:A4:80:91:9F:45:A9:B2:31:4D:08:1B:78",
+              "sha256": "09:08:34:A8:C9:F8:AD:9F:B6:9B:C0:08:2F:8D:DD:B1:B3:51:CD:3F:B9:07:ED:FB:82:3C:57:A0:B9:D9:49:7D"
+            },
+            "changelog": [
+              "Release ${VERSION_TAG}: Signed with persistent certificate for seamless self-update",
+              "APK SHA-256 Checksum: ${APK_SHA256}"
+            ]
+          }
+          EOF
+
+          echo "apk_name=${APK_NAME}" >> $GITHUB_OUTPUT
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+          echo "apk_sha256=${APK_SHA256}" >> $GITHUB_OUTPUT
+
+      - name: Upload Signed APK & Certificate Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-AI-${{ steps.package_release.outputs.version_tag }}-Release-Bundle
+          path: |
+            ${{ steps.package_release.outputs.apk_name }}
+            version.json
+            signing/signing-certificate-info.json
+            signing/SIGNING_README.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package_release.outputs.version_tag }}
+          name: "JARVIS AI ${{ steps.package_release.outputs.version_tag }}"
+          body: |
+            ## JARVIS AI ${{ steps.package_release.outputs.version_tag }} — Signed Android Release
+            - **Package Name**: `com.aistudio.adaassistant.jarvis`
+            - **Version**: `${{ steps.package_release.outputs.version_tag }}` (`versionCode: 111`)
+            - **APK SHA-256 Checksum**: `${{ steps.package_release.outputs.apk_sha256 }}`
+            - **Signing Certificate SHA-1**: `1A:8D:F9:BB:89:5C:A3:A4:A4:80:91:9F:45:A9:B2:31:4D:08:1B:78`
+            - **Signing Certificate SHA-256**: `09:08:34:A8:C9:F8:AD:9F:B6:9B:C0:08:2F:8D:DD:B1:B3:51:CD:3F:B9:07:ED:FB:82:3C:57:A0:B9:D9:49:7D`
+          files: |
+            ${{ steps.package_release.outputs.apk_name }}
+            version.json
+            signing/signing-certificate-info.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -451,7 +451,7 @@ fun AdaAuthenticatedHudApp(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "JARVIS AI // COMMAND SIDEBAR",
+                        text = "JARVIS v1.1.1 // SIDEBAR",
                         style = MaterialTheme.typography.titleLarge,
                         color = HudCyan,
                         fontWeight = FontWeight.Bold
@@ -522,12 +522,23 @@ fun AdaAuthenticatedHudApp(
 
                     HorizontalDivider(color = HudCyanDim.copy(alpha = 0.35f), modifier = Modifier.padding(vertical = 6.dp))
                     Text(
-                        text = "SYSTEM CONFIGURATION",
+                        text = "SYSTEM CONFIGURATION & OTA",
                         style = MaterialTheme.typography.labelSmall,
                         color = HudSkyBlue
                     )
 
-                    // 6. Voice Settings
+                    // 6. Self-Update & Signing Key (v1.1.1)
+                    NavigationDrawerItem(
+                        label = { Text("Self-Update & Signing Key (v1.1.1)") },
+                        selected = false,
+                        onClick = {
+                            settingsDialogSection = "UPDATE"
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.Shield, contentDescription = null, tint = HudEmerald) }
+                    )
+
+                    // 7. Voice Settings
                     NavigationDrawerItem(
                         label = { Text("Voice Settings (ElevenLabs / TTS)") },
                         selected = false,
@@ -538,7 +549,7 @@ fun AdaAuthenticatedHudApp(
                         icon = { Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = HudCyan) }
                     )
 
-                    // 7. AI Settings
+                    // 8. AI Settings
                     NavigationDrawerItem(
                         label = { Text("AI Settings (GPT-4o / Personality)") },
                         selected = false,
@@ -549,7 +560,7 @@ fun AdaAuthenticatedHudApp(
                         icon = { Icon(Icons.Default.Psychology, contentDescription = null, tint = HudEmerald) }
                     )
 
-                    // 8. API Configuration
+                    // 9. API Configuration
                     NavigationDrawerItem(
                         label = { Text("API Configuration & Secrets") },
                         selected = false,

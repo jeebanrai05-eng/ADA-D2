@@ -1,0 +1,30 @@
+{
+  "appName": "JARVIS AI (ADA v2)",
+  "packageName": "com.aistudio.adaassistant.jarvis",
+  "versionName": "1.1.1",
+  "versionCode": 111,
+  "releaseTag": "v1.1.1",
+  "releaseDate": "2026-11-03T09:38:00Z",
+  "minSdk": 24,
+  "targetSdk": 36,
+  "mandatoryUpdate": false,
+  "apkFileName": "JARVIS-AI-v1.1.1.apk",
+  "downloadUrl": "https://github.com/jeebanraiff05/jarvis-ai/releases/download/v1.1.1/JARVIS-AI-v1.1.1.apk",
+  "releasePageUrl": "https://github.com/jeebanraiff05/jarvis-ai/releases/tag/v1.1.1",
+  "versionJsonUrl": "https://raw.githubusercontent.com/jeebanraiff05/jarvis-ai/main/version.json",
+  "signingCertificate": {
+    "keyAlias": "androiddebugkey",
+    "keystoreBase64File": "debug.keystore.base64",
+    "sha1": "1A:8D:F9:BB:89:5C:A3:A4:A4:80:91:9F:45:A9:B2:31:4D:08:1B:78",
+    "sha256": "09:08:34:A8:C9:F8:AD:9F:B6:9B:C0:08:2F:8D:DD:B1:B3:51:CD:3F:B9:07:ED:FB:82:3C:57:A0:B9:D9:49:7D",
+    "subject": "CN=Android Debug,O=Android,C=US"
+  },
+  "changelog": [
+    "v1.1.1 Release: Full JARVIS AI Personal Assistant (Bilingual English & Nepali)",
+    "Integrated GPT-4o + Firebase AI Logic (Gemini 3.8 Flash) dual neural core",
+    "Added Live Internet Search with Open-Meteo Weather, DuckDuckGo, and Wikipedia citations",
+    "Added ElevenLabs Multilingual v2 Voice Engine + Android TTS fallback",
+    "Added 10-card Android Phone Control Dashboard (Battery, Flashlight, Volume, Apps, Notifications, Calls, SMS, Alarms, Accessibility, Master Stop)",
+    "Added GitHub Release v1.1.1 workflow, version.json manifest, and persistent signing key verification for seamless future updates"
+  ]
+}

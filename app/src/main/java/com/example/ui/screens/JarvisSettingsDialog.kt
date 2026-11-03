@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -26,18 +31,23 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.service.JarvisApiKeysConfig
+import com.example.service.JarvisUpdateManager
 import com.example.service.JarvisVoiceConfig
+import com.example.service.ReleaseManifest
 import com.example.ui.theme.HudAmber
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanDim
@@ -47,10 +57,11 @@ import com.example.ui.theme.HudMutedText
 import com.example.ui.theme.HudObsidian
 import com.example.ui.theme.HudPanelSurface
 import com.example.ui.theme.HudSkyBlue
+import kotlinx.coroutines.launch
 
 @Composable
 fun JarvisSettingsDialog(
-    initialSection: String, // "VOICE", "AI", "API"
+    initialSection: String, // "VOICE", "AI", "API", "UPDATE"
     voiceConfig: JarvisVoiceConfig,
     selectedAiEngine: String,
     jarvisPersonality: String,
@@ -61,6 +72,10 @@ fun JarvisSettingsDialog(
     onTestVoice: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val updateManager = remember { JarvisUpdateManager(context) }
+
     var activeTab by remember(initialSection) { mutableStateOf(initialSection) }
 
     // Voice local state
@@ -82,6 +97,22 @@ fun JarvisSettingsDialog(
     var elevenKey by remember(apiKeysConfig) { mutableStateOf(apiKeysConfig.elevenLabsKeyOverride) }
     var elevenVoiceOverride by remember(apiKeysConfig) { mutableStateOf(apiKeysConfig.elevenLabsVoiceIdOverride) }
 
+    // Self-Update & Signing state
+    var githubRepoInput by remember { mutableStateOf("jeebanraiff05/jarvis-ai") }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var releaseManifest by remember { mutableStateOf<ReleaseManifest?>(null) }
+    val (runtimeSha1, runtimeSha256) = remember { updateManager.readRuntimeSigningFingerprints() }
+
+    LaunchedEffect(activeTab) {
+        if (activeTab == "UPDATE" && releaseManifest == null) {
+            checkingUpdate = true
+            updateManager.checkUpdateManifest(githubRepoInput).onSuccess {
+                releaseManifest = it
+            }
+            checkingUpdate = false
+        }
+    }
+
     val voicePresets = listOf(
         Triple("JBFqnCBsd6RMkjVDRZzb", "Classic British Butler", 0.95f),
         Triple("ErXwobaYiN019PkySvjV", "Tactical Commander", 0.88f),
@@ -95,7 +126,7 @@ fun JarvisSettingsDialog(
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "JARVIS SYSTEM CONFIGURATION",
+                    text = "JARVIS v${updateManager.installedVersionName} // CONFIGURATION",
                     style = MaterialTheme.typography.titleLarge,
                     color = HudCyan,
                     fontWeight = FontWeight.Bold
@@ -107,6 +138,7 @@ fun JarvisSettingsDialog(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf(
+                        "UPDATE" to "Update & Signing Key",
                         "VOICE" to "Voice Engine",
                         "AI" to "AI Brain",
                         "API" to "API Config"
@@ -132,6 +164,180 @@ fun JarvisSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 when (activeTab) {
+                    "UPDATE" -> {
+                        Text(
+                            text = "GITHUB RELEASE (v1.1.1) & SIGNING CERTIFICATE",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = HudSkyBlue
+                        )
+
+                        // Installed Version & Saved Signing Certificate Box
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = HudObsidian,
+                            border = BorderStroke(1.dp, HudEmerald.copy(alpha = 0.6f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "INSTALLED: v${updateManager.installedVersionName} (versionCode ${updateManager.installedVersionCode})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HudEmerald,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Package: ${updateManager.packageName}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HudIceWhite
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "SAVED SIGNING CERTIFICATE (debug.keystore.base64):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HudCyan
+                                )
+                                Text(
+                                    text = "SHA-1:\n$runtimeSha1",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HudIceWhite
+                                )
+                                Text(
+                                    text = "SHA-256:\n$runtimeSha256",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HudMutedText
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        val clipText = """
+                                            Package: ${updateManager.packageName}
+                                            Version: v${updateManager.installedVersionName} (code ${updateManager.installedVersionCode})
+                                            SHA-1: $runtimeSha1
+                                            SHA-256: $runtimeSha256
+                                            Keystore File: debug.keystore.base64 (alias: androiddebugkey)
+                                        """.trimIndent()
+                                        cb?.setPrimaryClip(ClipData.newPlainText("JARVIS Signing Certificate", clipText))
+                                        Toast.makeText(context, "Signing certificate SHA-1 & SHA-256 copied!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    border = BorderStroke(1.dp, HudCyan),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Copy Signing Key Certificate (SHA-1 & SHA-256)", color = HudCyan, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+
+                        // GitHub Repo / version.json Self-Update Checker
+                        OutlinedTextField(
+                            value = githubRepoInput,
+                            onValueChange = { githubRepoInput = it },
+                            label = { Text("GitHub Repo (owner/repo) or version.json URL") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    checkingUpdate = true
+                                    updateManager.checkUpdateManifest(githubRepoInput).onSuccess {
+                                        releaseManifest = it
+                                    }
+                                    checkingUpdate = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = HudCyan, contentColor = HudObsidian),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Check version.json for Self-Update", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        if (checkingUpdate) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = HudCyan)
+                        }
+
+                        releaseManifest?.let { manifest ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = HudObsidian,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (manifest.isUpdateAvailable) HudAmber else HudCyanDim.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = if (manifest.isUpdateAvailable)
+                                            "NEW UPDATE AVAILABLE: ${manifest.releaseTag} (Build ${manifest.versionCode})"
+                                        else
+                                            "UP TO DATE: ${manifest.releaseTag} (Build ${manifest.versionCode})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (manifest.isUpdateAvailable) HudAmber else HudEmerald,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Source: ${manifest.sourceLabel}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = HudSkyBlue
+                                    )
+                                    Text(
+                                        text = if (manifest.isSignatureCompatible)
+                                            "Signing Key Match: VERIFIED (Seamless in-place update supported)"
+                                        else
+                                            "Signing Key Warning: Remote SHA-256 differs from installed APK",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (manifest.isSignatureCompatible) HudEmerald else HudAmber
+                                    )
+
+                                    if (manifest.changelog.isNotEmpty()) {
+                                        Text(
+                                            text = "Release Notes (${manifest.releaseTag}):",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = HudCyan
+                                        )
+                                        manifest.changelog.forEach { note ->
+                                            Text(
+                                                text = "• $note",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = HudIceWhite
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { updateManager.openReleaseDownloadInBrowser(manifest.releasePageUrl) },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("GitHub Release", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        Button(
+                                            onClick = { updateManager.openReleaseDownloadInBrowser(manifest.downloadUrl) },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = HudEmerald,
+                                                contentColor = HudObsidian
+                                            ),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Download APK", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     "VOICE" -> {
                         Text(
                             text = "ELEVENLABS & ANDROID VOICE ENGINE",
@@ -213,7 +419,7 @@ fun JarvisSettingsDialog(
 
                         OutlinedButton(
                             onClick = {
-                                onTestVoice("Good day, Sir. JARVIS Voice Engine calibrated at ${"%.1f".format(speechRate)}x speed.")
+                                onTestVoice("Good day, Sir. JARVIS v1.1.1 Voice Engine calibrated at ${"%.1f".format(speechRate)}x speed.")
                             },
                             border = BorderStroke(1.dp, HudCyan),
                             modifier = Modifier.fillMaxWidth()
